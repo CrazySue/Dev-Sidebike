@@ -1,7 +1,7 @@
 # Dev-Sidebike v0.1.0-beta.1 · 最终交付报告
 
-> 交付时间：2026-10-25（项目启动 03:26，交付目标 8 小时）。作者：Lead（Agent Teams）。
-> 状态：**beta 完成，三环境流水线测试全绿，交付物已生成（详见 §2、§5；最终数字以 `dist/delivery-manifest.json` 与 `dist/TEST-REPORT.md` 为准）**。
+> 交付时间：2026-10-25（项目启动 03:26，05:25 完成最终三环境流水线）。作者：Lead（Agent Teams）。
+> 状态：**beta 完成。`pipeline.ps1 all` 全绿（dev → test → prod），交付物已生成于 `dist/`（git `09e3696`）。**
 
 ---
 
@@ -19,12 +19,12 @@
 
 | 文件 | 说明 |
 | --- | --- |
-| `Dev-Sidebike-0.1.0-beta.1-release.apk` | **推荐安装**。release 签名（beta 自签名），仅 ARM（arm64-v8a / armeabi-v7a） |
-| `Dev-Sidebike-0.1.0-beta.1-debug.apk` | debug 预交付物（含 x86_64/x86，便于模拟器/排障） |
-| `SHA256SUMS.txt` | 校验和 |
-| `delivery-manifest.json` | 版本 / git SHA / 构建时间 / 产物哈希 / 测试报告索引 |
+| `Dev-Sidebike-0.1.0-beta.1-release.apk` | **推荐安装**。14.67 MB，release 签名（beta 自签名 CN=Dev-Sidebike Beta），仅 ARM（arm64-v8a / armeabi-v7a），debuggable=false，sha256 `cdbf5a02...f359108` |
+| `Dev-Sidebike-0.1.0-beta.1-debug.apk` | 21.13 MB，debug 预交付物（含 x86_64/x86，便于模拟器/排障），sha256 `f8127d78...b889b1` |
+| `SHA256SUMS.txt` | 校验和（与 APK 实测一致） |
+| `delivery-manifest.json` | 版本 / git SHA `09e3696` / 构建时间 / 产物哈希 / 测试报告索引 |
 | `README.md` | 安装与使用说明、已知限制 |
-| `TEST-REPORT.md` | 测试环境完整报告（单测/静态审计/APK 校验/门禁结果） |
+| `TEST-REPORT.md` | 测试环境完整报告（单测/静态审计/APK 校验/门禁结果，结论 PASS） |
 
 ### 2.2 源码与文档（工作区 `E:\WorkSpace\Dev-Sidebike`）
 
@@ -62,13 +62,14 @@
 
 | 验证 | 结果 |
 | --- | --- |
-| `:core:test` | 167 tests，0 failed，1 skipped（真实网络 E2E 为 opt-in） |
-| `:app:testDebugUnitTest` | 见 `dist/TEST-REPORT.md`（含 Controller/数据/VPN 编解码/Robolectric UI/QA 对抗 fuzz） |
-| MD3/动画静态审计 | PASS（27 个 UI Kotlin 文件，动画 72 处，运动 token 使用 36 处，无 M2/硬编码颜色/线性动画） |
-| APK 门禁 | PASS（包名/minSdk26/targetSdk35/权限/VPN 声明/FGS type/always-on/NSC user CA/debuggable 符合变体） |
-| 需求结构门禁 | 46/46 PASS（三环境脚本、ABI 配置、docs、git tag、截图真 PNG 校验） |
-| 三环境流水线 | dev → test → prod 门禁；失败禁止晋级；build-info 与 APK sha256/gitSha 强一致性校验 |
-| 模拟器 E2E（Android 15 / API 35 / x86_64 Play 镜像） | E1 系统代理 PASS；E2 DNS 防污染 PASS（github/google 真实 IP，62+ 连接、69 规则加载）；E5/E5b 故障注入 PASS（自动拆 VPN + 网络恢复 + 可重启）；停止/force-stop 网络恢复 PASS；Private DNS/lockdown 横幅 PASS；通知权限 PASS |
+| `:core:test` | **174 tests，0 failed，1 skipped**（真实网络 E2E 为 opt-in skip） |
+| `:app:testDebugUnitTest` | **181 tests，0 failed，2 skipped**（Robolectric 截图采集为 opt-in skip；含 Controller/数据/VPN 编解码/Robolectric UI/QA 对抗 fuzz） |
+| MD3/动画静态审计 | PASS（27 个 UI Kotlin 文件，动画 72 处，运动 token 使用 36 处，无 M2/硬编码颜色/线性动画/自定义字体） |
+| APK 门禁 | PASS（release：包名/minSdk26/targetSdk35/权限/VPN 声明/FGS type/always-on/NSC user CA/debuggable=false；debug：符合变体） |
+| 需求结构门禁 | **46/46 PASS**（三环境脚本、ABI 配置、docs、git tag、截图真 PNG 校验） |
+| 三环境流水线 | **dev → test → prod 全绿**；失败禁止晋级；build-info 与 APK sha256/gitSha 强一致性校验 |
+| 签名校验 | `apksigner verify` PASS（CN=Dev-Sidebike Beta，自签 beta key） |
+| 模拟器 E2E（Android 15 / API 35 / x86_64 Play 镜像） | E1 系统代理 PASS；E2 DNS 防污染 PASS（github/google 真实 IP，62+ 连接、69 规则加载）；E5/E5b 故障注入 PASS（自动拆 VPN + 网络恢复 + 可重启）；停止/force-stop 网络恢复 PASS；Private DNS/lockdown 横幅 PASS；通知权限 PASS；QA 自动化 smoke **9/9 PASS** |
 | 独立真实网络 JVM E2E | PASS：config 371ms / engine.start 321ms / 真实上游 DNS（preset、DoH、TTL）/ CONNECT+真实 TLS（github、tencent）/ stop 后 4ms 释放端口；APK 内 `rules.json` 40KB 与源码一致 |
 | 代码质量扫描 | 无 `TODO()` 生产炸弹；DNS provider 无系统 resolver 自举；代理仅监听 127.0.0.1；debug 故障注入仅存在于 debug source set；无密钥/CA 私钥日志泄漏 |
 
