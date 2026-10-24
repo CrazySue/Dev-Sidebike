@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Dev-Sidebike does not embed user-facing web content. The proxy backend needs no special
+  cleartext exemption beyond localhost, which Android permits by default.
+-->
+<network-security-config>
+    <base-config cleartextTrafficPermitted="true" />
+</network-security-config>

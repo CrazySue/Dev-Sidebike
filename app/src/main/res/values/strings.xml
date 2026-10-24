@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Dev-Sidebike</string>
+    <string name="vpn_channel_name">网络代理状态</string>
+    <string name="vpn_channel_desc">Dev-Sidebike 运行状态与连接统计</string>
+    <string name="vpn_notification_title">Dev-Sidebike 正在运行</string>
+    <string name="vpn_notification_stopped">Dev-Sidebike 已停止</string>
+</resources>

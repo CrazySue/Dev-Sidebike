@@ -1,0 +1,36 @@
+# === Dev-Sidebike ===
+# Reference upstream source (read-only, not part of deliverable)
+/reference/
+
+# Build tooling installed inside workspace (not part of deliverable)
+/tools/
+/downloads/
+
+# Gradle / build outputs
+.gradle/
+/.gradle-home/
+build/
+**/build/
+local.properties
+*.iml
+.idea/
+captures/
+.kotlin/
+
+# OS
+Thumbs.db
+.DS_Store
+
+# Secrets / certificates generated locally
+*.jks
+*.keystore
+*.pem
+sidebike.ca.*
+!app/src/main/assets/ca/root_ca.crt
+!app/src/main/assets/ca/root_ca.key.pem
+
+# Test / reports
+/out/
+/reports/
+*.log
+!docs/**/*.log
