@@ -74,11 +74,16 @@ class DefaultRuleEngine(
 
     // ------------------------------------------------------------------ api.RuleEngine
 
-    override fun match(host: String, pathAndQuery: String?): InterceptAction? =
-        compiled.matchAction(host, pathAndQuery)
+    override fun match(host: String, pathAndQuery: String?): InterceptAction? {
+        if (host.isBlank()) return null
+        return compiled.matchAction(host, pathAndQuery)
+    }
 
     override fun plan(host: String, port: Int, pathAndQuery: String?): RoutePlan {
         val normalizedHost = DomainPatternMatcher.normalizeHost(host)
+        if (normalizedHost.isEmpty()) {
+            return RoutePlan(RouteKind.DIRECT, host, port, reason = "empty-host")
+        }
         val key = "$normalizedHost|$port|${pathAndQuery ?: "\u0000"}"
         synchronized(planLock) { planCache[key]?.let { return it } }
         val plan = buildPlan(normalizedHost, port, pathAndQuery)

@@ -46,7 +46,14 @@ function Sh([string]$name) {
     }
     return ''
 }
-function Adb([string[]]$args) { return (& $adb @args 2>&1 | Out-String) }
+function Adb {
+    param([Parameter(ValueFromRemainingArguments = $true)][string[]]$CmdArgs)
+    # Accept both "Adb shell getprop x" (3 args) and "Adb @('shell getprop x')" (1 string arg):
+    # flatten every element on spaces so adb always receives proper argv entries.
+    $flat = @()
+    foreach ($part in $CmdArgs) { $flat += ($part -split '\s+' | Where-Object { $_ -ne '' }) }
+    return (& $adb $flat 2>&1 | Out-String)
+}
 function Wait-Boot {
     $deadline = (Get-Date).AddSeconds($BootTimeoutSec)
     & $adb start-server 2>&1 | Out-Null

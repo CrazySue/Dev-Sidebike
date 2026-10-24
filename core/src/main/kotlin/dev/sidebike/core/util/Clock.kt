@@ -15,8 +15,14 @@ interface Clock {
     }
 }
 
-/** Mutable fake clock for hermetic tests. */
-class FakeClock(private var nowMs: Long = 1_700_000_000_000L) : Clock {
+/**
+ * Mutable fake clock for hermetic tests.
+ *
+ * Defaults to the real wall clock at construction time (then frozen, so tests stay deterministic) - TLS
+ * certificates generated from this clock must still be valid "now", otherwise JVM certificate path
+ * validation rejects them as expired.
+ */
+class FakeClock(private var nowMs: Long = System.currentTimeMillis()) : Clock {
     override fun currentTimeMillis(): Long = synchronized(this) { nowMs }
 
     fun advanceByMillis(deltaMs: Long) {

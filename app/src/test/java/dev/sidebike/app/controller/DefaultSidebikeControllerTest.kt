@@ -164,10 +164,15 @@ class DefaultSidebikeControllerTest {
         assertNotNull(failed.lastError)
         assertEquals(1, gateway.starts.size)
 
-        // No zombie lock: a retry after an error must be able to start again.
+        // No zombie lock: a retry after an error must be able to start again. `start()` clears its
+        // re-entrancy guard in the coroutine that reports ERROR, so poll briefly until it is released.
         gateway.startMode = FakeVpnGateway.StartMode.RUNNING
         VpnServiceBridge.reset()
-        controller.start()
+        val deadline = System.currentTimeMillis() + FAIL_TIMEOUT_MS
+        while (gateway.starts.size < 2 && System.currentTimeMillis() < deadline) {
+            controller.start()
+            Thread.sleep(100)
+        }
         awaitState { it.status == RunStatus.RUNNING }
         assertEquals(2, gateway.starts.size)
     }

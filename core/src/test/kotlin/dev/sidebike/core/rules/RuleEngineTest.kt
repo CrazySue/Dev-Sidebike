@@ -200,6 +200,15 @@ class RuleEngineTest {
     }
 
     @Test
+    fun `blank host is handled without crashing`() {
+        val e = engine()
+        assertNull(e.match("", "/"))
+        assertEquals(RouteKind.DIRECT, e.plan("", 443, "/").kind)
+        assertEquals("empty-host", e.plan("", 443, "/").reason)
+        assertFalse(e.requiresMitm(""))
+    }
+
+    @Test
     fun `status only action becomes synthetic`() {
         val e = engine(
             intercepts = linkedMapOf(

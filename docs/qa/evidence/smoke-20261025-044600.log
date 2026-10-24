@@ -1,0 +1,29 @@
+=== Dev-Sidebike emulator smoke 20261025-044600 ===
+apk=E:\WorkSpace\Dev-Sidebike\out\dev\app-debug.apk package=dev.sidebike.app.debug
+[PASS] emulator-online: sys.boot_completed=1
+[PASS] apk-install: (skipped; apk='E:\WorkSpace\Dev-Sidebike\out\dev\app-debug.apk')
+[PASS] app-launch: Starting: Intent { cmp=dev.sidebike.app.debug/dev.sidebike.app.MainActivity }
+Warning: Activity not started, intent has been delivered to currently running top-most instance.
+Status: ok
+LaunchState: UNKNOWN (0)
+Activity: com.google.android.permissioncontroller/com.android.permissioncontroller.permission.ui.GrantPermissionsActivity
+TotalTime: 0
+WaitTime: 48
+Complete
+[shot] E:\WorkSpace\Dev-Sidebike\docs\qa\evidence\20261025-044600-01-launch.png (443185 bytes, png=True)
+[tap] NOT FOUND: 'Æô¶¯·þÎñ'
+[FAIL] vpn-start: start button not found
+=== SUMMARY ===
+  [PASS] emulator-online - sys.boot_completed=1
+  [PASS] apk-install - (skipped; apk='E:\WorkSpace\Dev-Sidebike\out\dev\app-debug.apk')
+  [PASS] app-launch - Starting: Intent { cmp=dev.sidebike.app.debug/dev.sidebike.app.MainActivity }
+Warning: Activity not started, intent has been delivered to currently running top-most instance.
+Status: ok
+LaunchState: UNKNOWN (0)
+Activity: com.google.android.permissioncontroller/com.android.permissioncontroller.permission.ui.GrantPermissionsActivity
+TotalTime: 0
+WaitTime: 48
+Complete
+  [FAIL] vpn-start - start button not found
+evidence: E:\WorkSpace\Dev-Sidebike\docs\qa\evidence
+result: 1 failed

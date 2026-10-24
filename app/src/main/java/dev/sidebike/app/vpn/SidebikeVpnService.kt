@@ -234,7 +234,16 @@ class SidebikeVpnService : VpnService() {
 
             // DNS readiness probe: if the engine cannot resolve, establishing the tun would route
             // every app's DNS into a black hole. Abort before touching the network.
-            if (!DnsProbe.probe(activeEngine, DNS_PROBE_TIMEOUT_MS)) {
+            var dnsReady = DnsProbe.probe(activeEngine, DNS_PROBE_TIMEOUT_MS)
+            if (!dnsReady && SidebikeRuntime.isServiceOwned()) {
+                // Android restarts always-on VPN very early after boot; the network may not be up yet.
+                // Give it one short retry before declaring failure (otherwise always-on stays broken
+                // until the user opens the app).
+                log(LogLevel.WARN, "DNS 尚未就绪（可能是开机 early-boot），${DNS_PROBE_BOOT_RETRY_DELAY_MS}ms 后重试")
+                delay(DNS_PROBE_BOOT_RETRY_DELAY_MS)
+                dnsReady = DnsProbe.probe(activeEngine, DNS_PROBE_TIMEOUT_MS)
+            }
+            if (!dnsReady) {
                 throw IllegalStateException(getString(R.string.vpn_error_dns_unavailable))
             }
 
@@ -708,6 +717,7 @@ class SidebikeVpnService : VpnService() {
         const val FAULT_REVOKE = "revoke"
 
         private const val DNS_PROBE_TIMEOUT_MS = 3_000L
+        private const val DNS_PROBE_BOOT_RETRY_DELAY_MS = 2_000L
 
         private const val CHANNEL_ID = "sidebike_vpn_status"
         private const val NOTIFICATION_ID = 0x5DB1

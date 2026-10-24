@@ -253,6 +253,15 @@ class DefaultDnsResolverTest {
     }
 
     @Test
+    fun `blank host returns empty answer without query`() = runBlocking {
+        val transport = FakeDnsTransport()
+        val resolver = resolver(config(), transport)
+        val answer = resolver.resolve("   ")
+        assertTrue(answer.isEmpty)
+        assertEquals(0, transport.calls.size)
+    }
+
+    @Test
     fun `ip literal host resolves without query`() = runBlocking {
         val transport = FakeDnsTransport()
         val resolver = resolver(config(), transport)

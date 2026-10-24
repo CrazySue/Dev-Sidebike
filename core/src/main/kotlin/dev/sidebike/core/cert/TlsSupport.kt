@@ -9,10 +9,13 @@ import java.security.cert.X509Certificate
 import javax.net.ssl.ExtendedSSLSession
 import javax.net.ssl.KeyManagerFactory
 import javax.net.ssl.SNIHostName
+import javax.net.ssl.SNIMatcher
+import javax.net.ssl.SNIServerName
 import javax.net.ssl.SSLContext
 import javax.net.ssl.SSLEngine
 import javax.net.ssl.SSLParameters
 import javax.net.ssl.SSLSocket
+import javax.net.ssl.StandardConstants
 import javax.net.ssl.TrustManager
 import javax.net.ssl.TrustManagerFactory
 import javax.net.ssl.X509ExtendedKeyManager
@@ -98,14 +101,44 @@ object TlsSupport {
      * `HTTP/1.1 200 Connection Established` (and must not have consumed any bytes beyond the CONNECT head).
      * The CONNECT authority is passed as the session peer host and used as the certificate fallback when
      * the ClientHello carries no SNI.
+     *
+     * A [SniCapture] can be supplied to learn the ClientHello SNI name: JSSE runs the configured
+     * [SNIMatcher] while parsing the ClientHello (before the certificate alias is resolved), which is the
+     * portable way to observe SNI on both the JVM and Android/Conscrypt. `SSLEngine#getHandshakeSession()`
+     * alone is not reliable for *server-mode SSLSocket* alias selection, so the captured value is consumed
+     * by [SniCertificateKeyManager] through a thread-local handshake context.
      */
-    fun wrapServerSocket(context: SSLContext, plainSocket: Socket, connectHost: String, connectPort: Int): SSLSocket {
+    fun wrapServerSocket(
+        context: SSLContext,
+        plainSocket: Socket,
+        connectHost: String,
+        connectPort: Int,
+        sniCapture: SniCapture? = null,
+    ): SSLSocket {
         val sslSocket = context.socketFactory.createSocket(plainSocket, connectHost, connectPort, true) as SSLSocket
         sslSocket.useClientMode = false
         sslSocket.needClientAuth = false
         sslSocket.wantClientAuth = false
         val params = sslSocket.sslParameters
         params.protocols = filterProtocols(sslSocket.supportedProtocols)
+        if (sniCapture != null) {
+            try {
+                params.sniMatchers = listOf(
+                    object : SNIMatcher(StandardConstants.SNI_HOST_NAME) {
+                        override fun matches(serverName: SNIServerName): Boolean {
+                            sniCapture.sni = if (serverName is SNIHostName) {
+                                serverName.asciiName
+                            } else {
+                                String(serverName.encoded, Charsets.US_ASCII)
+                            }
+                            return true // accept every SNI name; we only observe it
+                        }
+                    },
+                )
+            } catch (_: Throwable) {
+                // Older providers may not expose SNI matchers; the fallback (CONNECT host) still works.
+            }
+        }
         sslSocket.sslParameters = params
         return sslSocket
     }
@@ -167,6 +200,12 @@ object TlsSupport {
 /** Server-side TLS bundle: SSLContext plus the SNI key manager (needed for the fallback-host scope). */
 class ServerTls(val context: SSLContext, val keyManager: SniCertificateKeyManager)
 
+/** Mutable holder populated by [TlsSupport.wrapServerSocket]'s SNI matcher before cert selection. */
+class SniCapture {
+    @Volatile
+    var sni: String? = null
+}
+
 /**
  * SNI-aware server key manager: issues/caches a leaf certificate per requested host.
  *
@@ -180,17 +219,27 @@ class SniCertificateKeyManager(
 ) : X509ExtendedKeyManager() {
 
     private val threadFallbackHost = ThreadLocal<String?>()
+    private val threadSniCapture = ThreadLocal<SniCapture?>()
 
-    /** Runs [block] with an explicit certificate fallback host (the CONNECT authority). */
-    fun <T> withFallbackHost(host: String?, block: () -> T): T {
-        val previous = threadFallbackHost.get()
-        threadFallbackHost.set(host)
+    /**
+     * Runs [block] with the per-handshake context: the CONNECT authority used as certificate fallback and
+     * (when available) the SNI observed by the ClientHello matcher.
+     */
+    fun <T> withHandshakeContext(fallbackHost: String?, sniCapture: SniCapture?, block: () -> T): T {
+        val previousHost = threadFallbackHost.get()
+        val previousCapture = threadSniCapture.get()
+        threadFallbackHost.set(fallbackHost)
+        threadSniCapture.set(sniCapture)
         try {
             return block()
         } finally {
-            if (previous == null) threadFallbackHost.remove() else threadFallbackHost.set(previous)
+            if (previousHost == null) threadFallbackHost.remove() else threadFallbackHost.set(previousHost)
+            if (previousCapture == null) threadSniCapture.remove() else threadSniCapture.set(previousCapture)
         }
     }
+
+    /** Runs [block] with an explicit certificate fallback host (the CONNECT authority). */
+    fun <T> withFallbackHost(host: String?, block: () -> T): T = withHandshakeContext(host, null, block)
 
     private fun requestedSni(engine: SSLEngine?): String? {
         if (engine == null) return null
@@ -225,13 +274,16 @@ class SniCertificateKeyManager(
         issuers: Array<out Principal>?,
         engine: SSLEngine?,
     ): String? {
-        val sni = requestedSni(engine)
+        // Priority: ClientHello SNI (captured by the SNI matcher) > handshake session SNI > CONNECT host.
+        val sni = threadSniCapture.get()?.sni ?: requestedSni(engine)
         val host = sni ?: threadFallbackHost.get() ?: fallbackHostProvider()
         return resolveAlias(host)
     }
 
-    override fun chooseServerAlias(keyType: String?, issuers: Array<out Principal>?, socket: java.net.Socket?): String? =
-        resolveAlias(threadFallbackHost.get() ?: fallbackHostProvider())
+    override fun chooseServerAlias(keyType: String?, issuers: Array<out Principal>?, socket: java.net.Socket?): String? {
+        val host = threadSniCapture.get()?.sni ?: threadFallbackHost.get() ?: fallbackHostProvider()
+        return resolveAlias(host)
+    }
 
     override fun getCertificateChain(alias: String?): Array<X509Certificate>? {
         val host = hostOf(alias) ?: return null

@@ -123,7 +123,8 @@ class ScreenshotQaTest : ComposeTestBase() {
             File("E:/WorkSpace/Dev-Sidebike/docs/qa/screenshots"),
         )
         for (c in candidates) {
-            if (c.exists() || (c.parentFile != null && c.parentFile.exists())) return c
+            val parent = c.parentFile
+            if (c.exists() || (parent != null && parent.exists())) return c
         }
         return File("E:/WorkSpace/Dev-Sidebike/docs/qa/screenshots")
     }
@@ -182,7 +183,8 @@ class ScreenshotQaTestDark : ComposeTestBase() {
 
     private fun screenshotDir(): File {
         for (c in listOf(File("../docs/qa/screenshots"), File("../../docs/qa/screenshots"), File("E:/WorkSpace/Dev-Sidebike/docs/qa/screenshots"))) {
-            if (c.exists() || (c.parentFile != null && c.parentFile.exists())) return c
+            val parent = c.parentFile
+            if (c.exists() || (parent != null && parent.exists())) return c
         }
         return File("E:/WorkSpace/Dev-Sidebike/docs/qa/screenshots")
     }

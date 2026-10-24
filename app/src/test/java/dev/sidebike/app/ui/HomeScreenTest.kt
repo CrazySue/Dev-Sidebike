@@ -59,7 +59,8 @@ class HomeScreenTest : ComposeTestBase() {
         setHome(PreviewData.emptyState)
 
         composeRule.onAllNodesWithText("未运行").onFirst().assertExists()
-        composeRule.onNodeWithText("尚未启动").assertExists()
+        // "尚未启动" 同时出现在 Hero headline 与运行时长占位（两处），取第一个断言即可
+        composeRule.onAllNodesWithText("尚未启动").onFirst().assertExists()
         composeRule.onNodeWithText("启动服务").assertExists()
         composeRule.onNodeWithText("实时数据").assertExists()
         composeRule.onNodeWithText("连接总数").assertExists()

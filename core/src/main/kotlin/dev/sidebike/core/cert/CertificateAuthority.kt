@@ -66,6 +66,14 @@ class CertificateAuthority(
 ) {
     private val leafCache = LruCache<String, HeldCertificate>(if (maxLeafCache > 0) maxLeafCache else 256)
 
+    /**
+     * Issuer name reused verbatim (DER-encoded) from the CA certificate. Re-encoding
+     * `X500Principal#getName()` would reorder the RDN attributes and make the leaf's issuer name DER-unequal
+     * to the CA subject, which breaks `KeyStore.setKeyEntry` chain validation and JVM certificate path
+     * building ("unable to find valid certification path").
+     */
+    private val caSubjectName: X500Name = X500Name.getInstance(caCertificate.subjectX500Principal.encoded)
+
     val caCertificatePem: String = pemEncode("CERTIFICATE", caCertificate.encoded)
     val caPrivateKeyPem: String = pemEncode("PRIVATE KEY", caKeyPair.private.encoded)
 
@@ -87,7 +95,7 @@ class CertificateAuthority(
         val serial = BigInteger(63, SECURE_RANDOM)
         val leafSubjectPublicKey = keyPair.public
         val builder = JcaX509v3CertificateBuilder(
-            X500Name(caCertificate.subjectX500Principal.name),
+            caSubjectName,
             serial,
             notBefore,
             notAfter,

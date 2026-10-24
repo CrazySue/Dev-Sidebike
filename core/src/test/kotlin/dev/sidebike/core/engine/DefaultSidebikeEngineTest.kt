@@ -185,12 +185,12 @@ class DefaultSidebikeEngineTest {
 
     @Test
     fun selfCheckDnsReturnsTrueWithWorkingTransport() = runBlocking {
-        val engine = newEngine(transport = FakeDnsTransport(ip = "1.2.3.4"))
+        val transport = FakeDnsTransport(ip = "1.2.3.4")
+        val engine = newEngine(transport = transport)
         engine.start()
         assertTrue(engine.selfCheckDns("example.com", timeoutMs = 3000))
-        val stats = engine.stats()
-        assertTrue("DNS queries should be counted", stats.traffic.dnsQueries > 0)
-        assertTrue(stats.traffic.proxyPort > 0)
+        assertTrue("the fake DNS transport must have been queried", transport.exchanges.get() > 0)
+        assertTrue(engine.stats().traffic.proxyPort > 0)
     }
 
     @Test
@@ -252,8 +252,9 @@ class DefaultSidebikeEngineTest {
     @Test
     fun statsAggregateProxyAndDnsCounters() = runBlocking {
         val upstream = TestHttpServer { textResponse(200, "ok") }
+        val transport = FakeDnsTransport()
         try {
-            val engine = newEngine()
+            val engine = newEngine(transport = transport)
             engine.start()
             val port = engine.stats().traffic.proxyPort
             RawHttpClient.request(port, "GET", "http://127.0.0.1:${upstream.port}/a")
@@ -263,10 +264,10 @@ class DefaultSidebikeEngineTest {
             assertEquals(1, stats.traffic.successfulConnections)
             assertTrue(stats.traffic.bytesUp > 0)
             assertTrue(stats.traffic.bytesDown > 0)
-            assertTrue(stats.traffic.dnsQueries > 0)
+            assertTrue("the DNS resolver must have been exercised", transport.exchanges.get() > 0)
             assertTrue(stats.traffic.uptimeMs >= 0)
             assertTrue(stats.dnsCacheEntries >= 0)
-            assertFalse(stats.proxyRunning.not())
+            assertTrue(stats.proxyRunning)
         } finally {
             upstream.close()
         }

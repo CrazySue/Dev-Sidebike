@@ -133,6 +133,9 @@ class DefaultDnsResolver(
             val normalized = DomainPatternMatcher.normalizeHost(host)
             val started = clock()
             statsQueries.incrementAndGet()
+            if (normalized.isEmpty()) {
+                return DnsAnswer(host, emptyList(), "invalid", false, 0, 0)
+            }
             if (IpLiterals.isLiteral(normalized)) {
                 return DnsAnswer(normalized, listOf(normalized), "literal", false, minTtlSec, clock() - started)
             }
@@ -164,6 +167,7 @@ class DefaultDnsResolver(
             if (message.isResponse || message.questions.isEmpty()) return null
             val question = message.questions[0]
             if (question.clazz != 1) return null // 仅 IN
+            statsQueries.incrementAndGet()
             val payload = message.edns0?.udpPayloadSize?.coerceIn(512, 4096) ?: 512
             return try {
                 when (question.type) {
@@ -235,6 +239,7 @@ class DefaultDnsResolver(
                 if (filtered.isNotEmpty()) return DnsAnswer(normalized, filtered, "preset", false, minTtlSec, 0)
             }
             cache.get(cacheKey(normalized, family), clock())?.let { entry ->
+                statsCacheHits.incrementAndGet()
                 return DnsAnswer(normalized, entry.ips.map { it.ip }, entry.provider, true, entry.ttlSec, 0)
             }
             return queryFresh(normalized, family, clock(), countQuery = false)
