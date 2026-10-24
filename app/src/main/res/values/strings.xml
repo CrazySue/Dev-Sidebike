@@ -65,6 +65,11 @@
     <string name="home_error_title">发生错误</string>
     <string name="home_retry">重试</string>
     <string name="home_capability_note">DNS 级防污染对全部应用生效；HTTP 代理需应用遵循系统代理；MITM 需安装 CA，且仅部分应用信任用户 CA。</string>
+    <string name="home_warn_private_dns">系统 Private DNS（DoT）已开启，会绕过 VPN 的 DNS 拦截。请在系统设置中改为「自动」或关闭 Private DNS。</string>
+    <string name="home_warn_lockdown">检测到「始终开启 VPN + 阻止无 VPN 连接」，与 DNS-only 分隧道模式冲突。请改用「始终开启 VPN」但不勾选「阻止无 VPN 连接」。</string>
+    <string name="home_warn_system_proxy">系统 HTTP 代理未生效：不遵循系统代理的应用只能获得 DNS 级加速。</string>
+    <string name="home_warn_port_fallback">端口 %1$d 被占用，本地代理已回退到端口 %2$d。</string>
+    <string name="home_warn_title">环境提示</string>
 
     <!-- ============================ Statistics ============================ -->
     <string name="stats_total_conn">连接总数</string>
@@ -103,8 +108,21 @@
     <string name="rules_action_script">脚本注入</string>
     <string name="rules_action_status">状态码 %1$d</string>
     <string name="rules_action_cache">缓存 %1$d 天</string>
+    <string name="rules_action_status_short">状态码</string>
+    <string name="rules_action_cache_short">缓存</string>
     <string name="rules_action_desc_label">说明</string>
     <string name="rules_path_label">路径 %1$s</string>
+    <string name="rules_detail_sni">SNI 伪装</string>
+    <string name="rules_detail_proxy">镜像代理</string>
+    <string name="rules_detail_success">本地合成响应</string>
+    <string name="rules_detail_script">脚本注入</string>
+    <string name="rules_detail_status">状态码</string>
+    <string name="rules_detail_cache">缓存天数</string>
+    <string name="rules_detail_request">请求改写</string>
+    <string name="rules_detail_response">响应改写</string>
+    <string name="rules_detail_desc">说明</string>
+    <string name="rules_detail_remark">备注</string>
+    <string name="rules_detail_configured">已配置</string>
     <string name="rules_disabled_chip">已停用</string>
 
     <!-- ============================ Logs ============================ -->

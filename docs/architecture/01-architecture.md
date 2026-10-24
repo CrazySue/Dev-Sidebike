@@ -47,9 +47,12 @@
 1. UI → `SidebikeController.start()`。
 2. `VpnService.prepare()` 授权（若未授权，UI 落 `ActivityResultLauncher`）。
 3. `SidebikeVpnService` 启动前台服务：
-   - 构建 tun：`addAddress("10.111.0.1", 32)`、`addDnsServer("10.111.0.2")`、`addRoute("10.111.0.2", 32)`、`setMtu(1500)`、`setBlocking(false)`；
-   - API 29+ 调 `setHttpProxy(ProxyInfo.buildDirectProxy("127.0.0.1", config.proxy.port))`；
-   - 启动 `SidebikeEngine`：DNS 解析器 + HTTP 代理监听 `127.0.0.1:31181`。
+   - 构建 tun：`addAddress("10.111.0.1", 32)`、`addDnsServer("10.111.0.2")`、`addRoute("10.111.0.2", 32)`、`setMtu(1500)`、`setMetered(false)`、**blocking read（独立线程阻塞读，禁止非阻塞忙轮询）**；
+   - **先启动引擎并自检本地代理可连接（127.0.0.1:31181，占用则回退高位端口），确认成功后才 establish tun / setHttpProxy**；
+   - API 29+ 调 `setHttpProxy(ProxyInfo.buildDirectProxy("127.0.0.1", config.proxy.port))`；API 26-28 仅 DNS 模式；
+   - 启动 `SidebikeEngine`：DNS 解析器 + HTTP 代理监听 `127.0.0.1:31181`；
+   - 运行中 watchdog：代理线程死亡 → 立即拆 VPN（系统自动清除 HTTP 代理）+ ERROR 状态；
+   - `always-on` 支持（`meta-data android.net.VpnService.SUPPORTS_ALWAYS_ON=true`）+ 前台服务类型 `specialUse`（Android 14+ 不用 `systemExempted`，避免首次启动即崩溃）。
 4. tun 读线程：只收到发往 `10.111.0.2:53` 的 IPv4/UDP 报文 → 解析 DNS wire → `engine.resolveRawDnsQuery()` → 构造响应 IP/UDP 包写回 tun。
 5. 通知栏/QuickSettings Tile 反映状态与统计。
 
@@ -102,3 +105,15 @@ dev（源码） ──build──▶ 预交付物 out/dev/app-debug.apk
 | MITM 需用户 CA，多数应用不信任 | 默认关闭；证书安装引导页 + 一键导出；明确能力边界 |
 | 代理进程被杀 / 死循环 | 前台服务 + 系统 VPN 图标 + 应用内可恢复；代理自身 socket 不走 tun（只路由 DNS IP）|
 | 电池/后台限制（MIUI/HyperOS） | 引导页说明自启动与电池白名单；always-on VPN 支持 |
+
+## 7. 2026-10-25 修订记录（T1 上游分析 + T2 独立复核后）
+
+1. **事实校正（重要，影响产品文案）**：上游 Dev-Sidecar **没有本地 DNS 服务器**（无 53 端口监听；"DNS 防污染"是代理进程内置的解析层），其反审查手段是 **"诱饵 SNI（decoy SNI，如 `github.com → baidu.com`）规避 SNI 阻断 + DoH/DoT/预置 IP/测速选优规避 DNS 污染 + ECH 加密 SNI"** 三套机制，**不是"HTTPS SNI 漏洞"**。详见 `docs/feasibility/01-dev-sidecar-analysis.md`（含源码行号与实测响应头 `DS-Interceptor: sni: baidu.com, unVerifySsl`）。
+2. 因此 Android 端的 **tun DNS 拦截是 Android 专属增强**（上游没有），也是"无需证书即可让所有应用获得防污染解析"的核心价值来源。
+3. **MITM 必要性**：`sni`（诱饵 SNI）与 `proxy`（镜像改写）都必须 MITM 终止客户端 TLS 才能生效。`mitm.enabled=false`（默认）时这两类规则降级为"直连真实域名"，由 DNS 防污染保证可达性；开启后浏览器等信任用户 CA 的应用可获得完整加速。
+4. **VpnService 细节**：tun blocking read；API29+ `setHttpProxy`、API26-28 仅 DNS 模式；`setMetered(false)`；FGS 类型用 `specialUse`（含 `FOREGROUND_SERVICE_SPECIAL_USE` 权限与 `PROPERTY_SPECIAL_USE_FGS_SUBTYPE`）；always-on `meta-data`；启动前必须完成本地代理自检；watchdog 失败即拆 VPN；31181 被占用回退高位端口并反映到 `SidebikeUiState.effectiveProxyPort`。
+5. **运行期检测**：Private DNS(DoT) 开启会完全绕过 VPN DNS（`LinkProperties.isPrivateDnsActive`，API28+，UI 强提示关闭/设为自动）；"始终开启 VPN 且阻止无 VPN 连接"（lockdown，`isLockdownEnabled`，API29+）与 DNS-only split-tunnel 冲突（除 DNS 外断网，UI 提示）；establish 后读取 VPN 网络 `LinkProperties.httpProxy` 以判断系统代理是否真正注册（`SidebikeUiState.systemProxyRegistered`）。
+6. **DNS 自举安全**：engine 永不使用系统 resolver 解析 DNS Provider 主机名，只使用 `DnsProvider.bootstrapIps`（契约已加）；且 VPN 只路由 `10.111.0.2/32`，engine 上游 socket 不进入 tun，无自举环。
+7. **tun DNS 应答器**：永不置 TC（不处理 TCP:53）；按客户端 EDNS0 UDP buffer（无 EDNS0 默认 512B）裁剪答案，保证报文合法。
+8. **本机可行性实测**（`_script/experiments/sni_probe.mjs`，DoH 干净解析后直连）：`github.com` / `api.github.com` / `codeload.github.com` / `www.gstatic.com` 可直连且证书正确；`raw.githubusercontent.com`、`objects.githubusercontent.com`（185.199.108.0/22）TCP 超时；`www.google.com` 直连不可达。结论：**默认无 CA 模式对 GitHub 核心域有效；raw/gist 文件与 Google 系需要镜像改写或 MITM 增强**，与产品文案一致。
+9. **QA 复核**：本机支持 Android 模拟器（WHPX 可用、31.7GB RAM），将用于 APK 安装/启动/VPN/截图验收；无手机实测的部分（如 VPN 系统代理是否被各应用遵循）已整理成 owner 手机端 10 分钟验收清单（见 `docs/qa/`）。

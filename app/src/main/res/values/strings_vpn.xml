@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- VPN foreground-service + notification strings (android-service workstream scope). -->
+<resources>
+    <string name="vpn_notification_starting">正在启动…</string>
+    <string name="vpn_notification_running">运行中</string>
+    <string name="vpn_notification_dns_queries">DNS 查询 %1$d</string>
+    <string name="vpn_notification_proxy_port">代理端口 %1$d</string>
+    <string name="vpn_notification_stop_action">停止</string>
+    <string name="vpn_notification_mode_dns_only">仅 DNS 模式（当前 Android 版本不支持系统代理）</string>
+    <string name="vpn_always_on_bootstrap">由 always-on VPN 启动</string>
+    <string name="vpn_error_engine_stopped">代理/DNS 引擎已停止运行</string>
+    <string name="vpn_error_proxy_port_unavailable">本地代理端口不可用</string>
+    <string name="vpn_error_no_tun">未能建立 tun（VPN 未授权或已有其他 VPN 连接）</string>
+    <string name="vpn_warning_private_dns">检测到系统「私人 DNS」已开启，可能绕过本 VPN 的防污染 DNS；建议在系统设置中关闭私人 DNS 或设为「自动」</string>
+    <string name="vpn_warning_lockdown">系统已开启「阻止无 VPN 连接」（Lockdown）；当前为拆分 DNS-only 模式，除 DNS 外的流量将被系统阻断。如非必要请在系统设置中关闭该选项</string>
+    <string name="vpn_warning_system_proxy_unavailable">未能确认系统代理已注册，部分应用可能不会走本地代理</string>
+    <string name="vpn_error_proxy_port_fallback">默认端口被占用，已改用 %1$d</string>
+    <string name="vpn_ca_install_hint">需要在系统设置中安装 Dev-Sidebike CA 后才能使用 HTTPS 改写（MITM）</string>
+</resources>

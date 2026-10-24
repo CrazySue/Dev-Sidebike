@@ -23,13 +23,13 @@
 
 ```powershell
 # 编译 debug APK（预交付物）
-pwsh -NoProfile -File E:\WorkSpace\Dev-Sidebike\_script\gradle.ps1 :app:assembleDebug
+powershell -NoProfile -File E:\WorkSpace\Dev-Sidebike\_script\gradle.ps1 :app:assembleDebug
 # 只跑 core 测试（最快反馈）
-pwsh -NoProfile -File E:\WorkSpace\Dev-Sidebike\_script\gradle.ps1 :core:test
+powershell -NoProfile -File E:\WorkSpace\Dev-Sidebike\_script\gradle.ps1 :core:test
 # 跑 app JVM 测试
-pwsh -NoProfile -File E:\WorkSpace\Dev-Sidebike\_script\gradle.ps1 :app:testDebugUnitTest
+powershell -NoProfile -File E:\WorkSpace\Dev-Sidebike\_script\gradle.ps1 :app:testDebugUnitTest
 # 三环境流水线（Lead 负责执行）
-pwsh -NoProfile -File E:\WorkSpace\Dev-Sidebike\_script\pipeline.ps1 test
+powershell -NoProfile -File E:\WorkSpace\Dev-Sidebike\_script\pipeline.ps1 test
 ```
 
 首次全量构建依赖下载可能耗时数分钟，属正常。**遇到依赖下载失败 → 重试或用镜像，不要改版本降级。**

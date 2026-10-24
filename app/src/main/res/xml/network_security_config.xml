@@ -1,8 +1,18 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
-  Dev-Sidebike does not embed user-facing web content. The proxy backend needs no special
-  cleartext exemption beyond localhost, which Android permits by default.
+  Dev-Sidebike does not embed user-facing web content. Cleartext stays permitted for the local
+  HTTP proxy on 127.0.0.1 (Android permits loopback by default, the explicit flag keeps it obvious).
+
+  The `user` trust anchor is required by the MITM CA installer detection flow
+  (`CaInstaller.isCaInstalled`): the app performs a loopback TLS self-test with the platform default
+  trust manager, which only sees the user-installed Dev-Sidebike CA when the app opts into the user
+  certificate store here. MITM remains opt-in and off by default.
 -->
 <network-security-config>
-    <base-config cleartextTrafficPermitted="true" />
+    <base-config cleartextTrafficPermitted="true">
+        <trust-anchors>
+            <certificates src="system" />
+            <certificates src="user" />
+        </trust-anchors>
+    </base-config>
 </network-security-config>

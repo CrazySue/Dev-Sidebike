@@ -72,6 +72,11 @@ data class DnsProvider(
     val protocol: DnsProtocol = DnsProtocol.AUTO,
     /** 连接上游时使用的伪装 SNI（对齐上游 cf-DoT 的 sni: baidu.com）。 */
     val sni: String? = null,
+    /**
+     * 连接上游前用于自举的 IP 列表（DoH/DoT 的 URL/TLS 主机名不能走系统 DNS，
+     * 否则在 VPN 内会形成自举环或再次被污染）。为空时使用 [server] 中的字面 IP。
+     */
+    val bootstrapIps: List<String> = emptyList(),
     /** 仅用于 SNI 查询（对齐上游 forSNI）。 */
     val forSni: Boolean = false,
     val enabled: Boolean = true,
@@ -79,6 +84,16 @@ data class DnsProvider(
     /** 伪装 SNI 场景下上游证书不可信，默认跳过校验。 */
     val trustAllCerts: Boolean = true,
 )
+
+/** 默认 DoH/DoT provider 的自举 IP（均为国内可直连的公共 DNS 出口 IP）。 */
+object DnsBootstraps {
+    const val ALIYUN_DOH_IP: String = "223.5.5.5"
+    const val DOHPUB_IP: String = "120.53.53.53"
+    const val DOHPUB_BACKUP_IP: String = "1.12.12.12"
+    const val CLOUDFLARE_IP: String = "1.1.1.1"
+    const val QUAD9_IP: String = "9.9.9.9"
+    const val RUBYFISH_IP: String = "203.107.6.88"
+}
 
 @Serializable
 data class DnsSettings(
@@ -108,11 +123,33 @@ data class DnsSettings(
     companion object {
         fun defaultProviders(): Map<String, DnsProvider> = linkedMapOf(
             "aliyun" to DnsProvider(server = "223.5.5.5", protocol = DnsProtocol.UDP),
-            "doh.pub" to DnsProvider(server = "https://doh.pub/dns-query", protocol = DnsProtocol.DOH),
-            "cf-DoT" to DnsProvider(server = "tls://1.1.1.1", protocol = DnsProtocol.DOT, sni = "baidu.com"),
-            "cf-DoH" to DnsProvider(server = "https://cloudflare-dns.com/dns-query", protocol = DnsProtocol.DOH, sni = "baidu.com"),
-            "quad9-ip" to DnsProvider(server = "https://9.9.9.9/dns-query", protocol = DnsProtocol.DOH),
-            "rubyfish" to DnsProvider(server = "https://rubyfish.cn/dns-query", protocol = DnsProtocol.DOH),
+            "doh.pub" to DnsProvider(
+                server = "https://doh.pub/dns-query",
+                protocol = DnsProtocol.DOH,
+                bootstrapIps = listOf(DnsBootstraps.DOHPUB_IP, DnsBootstraps.DOHPUB_BACKUP_IP),
+            ),
+            "cf-DoT" to DnsProvider(
+                server = "tls://1.1.1.1",
+                protocol = DnsProtocol.DOT,
+                sni = "baidu.com",
+                bootstrapIps = listOf(DnsBootstraps.CLOUDFLARE_IP),
+            ),
+            "cf-DoH" to DnsProvider(
+                server = "https://cloudflare-dns.com/dns-query",
+                protocol = DnsProtocol.DOH,
+                sni = "baidu.com",
+                bootstrapIps = listOf(DnsBootstraps.CLOUDFLARE_IP),
+            ),
+            "quad9-ip" to DnsProvider(
+                server = "https://9.9.9.9/dns-query",
+                protocol = DnsProtocol.DOH,
+                bootstrapIps = listOf(DnsBootstraps.QUAD9_IP),
+            ),
+            "rubyfish" to DnsProvider(
+                server = "https://rubyfish.cn/dns-query",
+                protocol = DnsProtocol.DOH,
+                bootstrapIps = listOf(DnsBootstraps.RUBYFISH_IP),
+            ),
         )
     }
 }

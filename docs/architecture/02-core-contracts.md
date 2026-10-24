@@ -29,3 +29,9 @@
 - `:core` 测试全部为 JVM 单元/集成测试（JUnit4），**不得访问外部网络**：用本地 `ServerSocket`/`DatagramSocket` 模拟上游。
 - 每个 workstream 至少覆盖：正常路径、超时、异常/坏包、并发、配置边界。
 - `_script/test.ps1` 会运行 `:core:test` + `:app:testDebugUnitTest` + 静态审计；失败即测试环境不通过。
+
+## 变更记录（Lead 维护）
+- 2026-10-25：`DnsProvider` 新增 `bootstrapIps`（禁止用系统 resolver 自举，避免 VPN DNS 环/二次污染）；默认 provider 已带自举 IP。
+- 2026-10-25：tun DNS wire 应答器约定——**永不置 TC**（不处理 TCP:53），按客户端 EDNS0 UDP buffer（默认 512B）裁剪答案、回显 question、计数一致。
+- 2026-10-25：代理启动顺序由 `:app` 保证（先起代理并自检可连接 → establish VPN → setHttpProxy）；`:core` 只保证 `ProxyServer.start()` 返回后端口可连接。
+- 2026-10-25：`SidebikeUiState` 新增 `systemProxyRegistered` / `privateDnsActive` / `lockdownDetected` / `effectiveProxyPort`（app 层状态契约，UI 必须展示相应告警）。

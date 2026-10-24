@@ -1,4 +1,4 @@
-# Dev-Sidebike 三环境流水线
+﻿# Dev-Sidebike 三环境流水线
 #
 #   dev  : 源码（开发环境）→ 构建预交付文件 out/dev/app-debug.apk + build-info.json
 #   test : 测试环境：单元/集成测试 + 静态审计 + APK 校验 → out/test/test-report.md + status.json
@@ -6,7 +6,7 @@
 #   prod : 生产环境：仅当 test 通过 → 构建签名 release APK → 升为交付文件 dist/
 #   all  : dev → test → prod（任一失败立即停止）
 #
-# 用法: pwsh -NoProfile -File E:\WorkSpace\Dev-Sidebike\_script\pipeline.ps1 dev|test|prod|all
+# 用法: powershell -NoProfile -File E:\WorkSpace\Dev-Sidebike\_script\pipeline.ps1 dev|test|prod|all
 param(
     [Parameter(Mandatory = $true)]
     [ValidateSet('dev', 'test', 'prod', 'all')]
@@ -117,7 +117,7 @@ function Invoke-TestStage {
     $audit = "$root\_script\qa\audit_md3.ps1"
     $auditOk = $false; $auditDetail = 'missing script'
     if (Test-Path $audit) {
-        $auditOut = & pwsh -NoProfile -File $audit 2>&1 | Out-String
+        $auditOut = & $audit 2>&1 | Out-String
         $auditOk = ($LASTEXITCODE -eq 0)
         $auditDetail = if ($auditOk) { '无违规' } else { ($auditOut -split "`n" | Select-Object -First 12) -join ' | ' }
         $auditOut | Set-Content -Encoding UTF8 "$outDir\md3-audit.log"
@@ -128,7 +128,7 @@ function Invoke-TestStage {
     $checkApk = "$root\_script\qa\check_apk.ps1"
     $apkOk = $false; $apkDetail = 'missing script'
     if (Test-Path $checkApk) {
-        $apkOut = & pwsh -NoProfile -File $checkApk -Apk $devApk -ExpectDebuggable $true 2>&1 | Out-String
+        $apkOut = & $checkApk -Apk $devApk -ExpectDebuggable $true 2>&1 | Out-String
         $apkOk = ($LASTEXITCODE -eq 0)
         $apkDetail = if ($apkOk) { '结构/清单校验通过' } else { ($apkOut -split "`n" | Select-Object -First 12) -join ' | ' }
         $apkOut | Set-Content -Encoding UTF8 "$outDir\apk-check.log"
@@ -144,7 +144,7 @@ function Invoke-TestStage {
     $checkReq = "$root\_script\qa\check_requirements.ps1"
     $reqOk = $false; $reqDetail = 'missing script'
     if (Test-Path $checkReq) {
-        $reqOut = & pwsh -NoProfile -File $checkReq 2>&1 | Out-String
+        $reqOut = & $checkReq 2>&1 | Out-String
         $reqOk = ($LASTEXITCODE -eq 0)
         $reqDetail = if ($reqOk) { '项目结构/三环境/ABI 配置满足要求' } else { ($reqOut -split "`n" | Select-Object -First 12) -join ' | ' }
         $reqOut | Set-Content -Encoding UTF8 "$outDir\requirements-check.log"
@@ -201,7 +201,7 @@ function Invoke-ProdStage {
     # 签名校验 + 交付清单
     $apkCheck = "$root\_script\qa\check_apk.ps1"
     if (Test-Path $apkCheck) {
-        & pwsh -NoProfile -File $apkCheck -Apk "$distDir\$releaseName" -ExpectDebuggable $false | Out-Host
+        & $apkCheck -Apk "$distDir\$releaseName" -ExpectDebuggable $false | Out-Host
         if ($LASTEXITCODE -ne 0) { throw "release APK 校验失败" }
     }
     $hashes = @()

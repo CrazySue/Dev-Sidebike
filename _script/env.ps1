@@ -1,4 +1,4 @@
-# Shared dev environment for all Dev-Sidebike agents/workstreams.
+﻿# Shared dev environment for all Dev-Sidebike agents/workstreams.
 # Usage:  . E:\WorkSpace\Dev-Sidebike\_script\env.ps1
 # After dot-sourcing:  gradle ...  |  adb ...  |  $env:ANDROID_HOME is set
 $root = 'E:\WorkSpace\Dev-Sidebike'

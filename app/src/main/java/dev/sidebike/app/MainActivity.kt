@@ -4,23 +4,21 @@ import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Surface
-import androidx.compose.material3.Text
-import androidx.compose.ui.Modifier
-import dev.sidebike.app.ui.theme.SidebikeTheme
+import androidx.lifecycle.viewmodel.compose.viewModel
+import dev.sidebike.app.ui.SidebikeRoot
+import dev.sidebike.app.ui.SidebikeViewModel
 
+/**
+ * 单 Activity + Compose 入口。edge-to-edge 由 [enableEdgeToEdge] + Scaffold insets 处理，
+ * 系统栏图标明暗由 [dev.sidebike.app.ui.SidebikeRoot] 根据主题设置动态调整。
+ */
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         enableEdgeToEdge()
         super.onCreate(savedInstanceState)
         setContent {
-            SidebikeTheme {
-                Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
-                    Text(text = "Dev-Sidebike")
-                }
-            }
+            val viewModel: SidebikeViewModel = viewModel()
+            SidebikeRoot(viewModel = viewModel)
         }
     }
 }
