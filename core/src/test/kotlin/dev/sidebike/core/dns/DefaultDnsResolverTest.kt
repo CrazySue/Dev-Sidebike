@@ -199,10 +199,10 @@ class DefaultDnsResolverTest {
         val transport = FakeDnsTransport().apply { respond("udp", manyIps) }
         val resolver = resolver(config(), transport)
 
-        val query = DnsCodec.buildQuery("big.example.com", DnsType.A, id = 77)
+        val query = DnsCodec.buildQuery("big.example.com", DnsType.A, id = 77, udpPayloadSize = 512)
         val reply = resolver.resolveRawQuery(query)
         assertNotNull(reply)
-        assertTrue("raw 应答必须 <= 512: ${reply!!.size}", reply.size <= 512)
+        assertTrue("raw 应答必须 <= EDNS0 advertised 512: ${reply!!.size}", reply.size <= 512)
         val parsed = DnsCodec.parseOrThrow(reply)
         assertEquals(77, parsed.id)
         assertTrue(parsed.isResponse)

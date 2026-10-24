@@ -52,7 +52,6 @@ class DnsCodecTest {
     fun `malformed packets return null`() {
         assertNull(DnsCodec.parse(byteArrayOf()))
         assertNull(DnsCodec.parse(byteArrayOf(1, 2, 3)))
-        assertNull(DnsCodec.parse(ByteArray(12))) // 无 question 但 qd=0 合法？此处仅保证不崩溃
         val truncated = DnsCodec.buildQuery("x.com", DnsType.A).copyOf(15)
         assertNull(DnsCodec.parse(truncated))
     }

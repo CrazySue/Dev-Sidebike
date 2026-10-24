@@ -90,9 +90,16 @@ object Json5 {
             return true
         }
 
+        var expectingKey = false
+
         while (i < text.length) {
             val c = text[i]
             when {
+                c.isWhitespace() -> {
+                    out.append(c)
+                    i++
+                }
+
                 c == '/' && i + 1 < text.length && text[i + 1] == '/' -> {
                     i += 2
                     while (i < text.length && text[i] != '\n') i++
@@ -123,6 +130,7 @@ object Json5 {
                             break
                         }
                     }
+                    expectingKey = false
                 }
 
                 c == '\'' -> { // 单引号字符串 → 双引号 + 必要转义
@@ -173,19 +181,28 @@ object Json5 {
                             i++
                         }
                     }
+                    expectingKey = false
                 }
 
-                c == '{' || c == '[' -> {
+                c == '{' -> {
                     out.append(c)
                     brackets.addLast(c)
                     i++
-                    if (c == '{') tryConsumeBareKey()
+                    expectingKey = true
+                }
+
+                c == '[' -> {
+                    out.append(c)
+                    brackets.addLast(c)
+                    i++
+                    expectingKey = false
                 }
 
                 c == '}' || c == ']' -> {
                     out.append(c)
                     if (brackets.isNotEmpty()) brackets.removeLast()
                     i++
+                    expectingKey = false
                 }
 
                 c == ',' -> {
@@ -195,16 +212,21 @@ object Json5 {
                     } else {
                         out.append(',')
                         i++
-                        if (brackets.lastOrNull() == '{') tryConsumeBareKey()
+                        expectingKey = brackets.lastOrNull() == '{'
                     }
                 }
 
                 c == ':' -> {
                     out.append(c)
                     i++
+                    expectingKey = false
                 }
 
                 else -> {
+                    if (expectingKey) {
+                        expectingKey = false
+                        if (tryConsumeBareKey()) continue
+                    }
                     out.append(c)
                     i++
                 }

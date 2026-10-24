@@ -23,14 +23,18 @@ data class ProxyTarget(
     /** 目标路径前缀（无尾斜杠；空串表示无前缀）。 */
     val pathPrefix: String,
 ) {
-    /** 把客户端原始 path（含 query）拼接到镜像目标路径。 */
+    /** 把客户端原始 path（含 query）拼接到镜像目标路径。空 path 表示直接使用前缀（前缀为空则 "/"）。 */
     fun buildPath(originalPathAndQuery: String): String {
         val path = when {
-            originalPathAndQuery.isEmpty() -> "/"
+            originalPathAndQuery.isEmpty() -> ""
             originalPathAndQuery.startsWith("/") -> originalPathAndQuery
             else -> "/$originalPathAndQuery"
         }
-        return if (pathPrefix.isEmpty()) path else "$pathPrefix$path"
+        return when {
+            pathPrefix.isEmpty() -> path.ifEmpty { "/" }
+            path.isEmpty() -> pathPrefix
+            else -> "$pathPrefix$path"
+        }
     }
 }
 

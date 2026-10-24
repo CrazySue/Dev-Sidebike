@@ -15,7 +15,7 @@ import org.junit.Test
 class UdpDnsCodecTest {
 
     private val vpnDns = byteArrayOf(10, 111, 0, 2)
-    private val client = byteArrayOf(192, 168, 1, 77)
+    private val client = byteArrayOf(192.toByte(), 168.toByte(), 1, 77)
     private val handler = DnsTunHandler(vpnDnsAddress = vpnDns)
 
     // ---------------------------------------------------------------- classification

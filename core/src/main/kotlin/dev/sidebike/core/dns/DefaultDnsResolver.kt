@@ -169,12 +169,16 @@ class DefaultDnsResolver(
                 when (question.type) {
                     DnsType.A -> {
                         val answer = resolveForRaw(question.name, 4)
-                        DnsCodec.buildReply(
-                            message,
-                            answer.ips.map { IpAnswer(it, answer.ttlSec, 4) },
-                            0,
-                            payload,
-                        )
+                        if (answer.ips.isEmpty()) {
+                            DnsCodec.buildReply(message, emptyList(), 2, payload) // SERVFAIL
+                        } else {
+                            DnsCodec.buildReply(
+                                message,
+                                answer.ips.map { IpAnswer(it, answer.ttlSec, 4) },
+                                0,
+                                payload,
+                            )
+                        }
                     }
 
                     DnsType.AAAA -> {
@@ -182,12 +186,16 @@ class DefaultDnsResolver(
                             DnsCodec.buildReply(message, emptyList(), 0, payload)
                         } else {
                             val answer = resolveForRaw(question.name, 6)
-                            DnsCodec.buildReply(
-                                message,
-                                answer.ips.map { IpAnswer(it, answer.ttlSec, 6) },
-                                0,
-                                payload,
-                            )
+                            if (answer.ips.isEmpty()) {
+                                DnsCodec.buildReply(message, emptyList(), 2, payload) // SERVFAIL，客户端会回退 A
+                            } else {
+                                DnsCodec.buildReply(
+                                    message,
+                                    answer.ips.map { IpAnswer(it, answer.ttlSec, 6) },
+                                    0,
+                                    payload,
+                                )
+                            }
                         }
                     }
 
@@ -361,13 +369,20 @@ class DefaultDnsResolver(
             if (names.none { endpoints[it]?.usable == true }) {
                 fallbackNames.firstOrNull { endpoints[it]?.usable == true }?.let { names.add(it) }
             }
-            // 并行/回退候选：补足最多 2 个候选（按 provider 失败次数升序）
+            // 并行/回退候选：parallel 时补足最多 2 个候选；串行时按失败次数升序追加全部回退候选
             if (parallel) {
                 val sortedFallbacks = fallbackNames.asSequence()
                     .filter { endpoints[it]?.usable == true }
                     .sortedBy { providerFailureCount(it) }
                 for (name in sortedFallbacks) {
                     if (names.size >= 2) break
+                    names.add(name)
+                }
+            } else {
+                val sortedFallbacks = fallbackNames.asSequence()
+                    .filter { endpoints[it]?.usable == true }
+                    .sortedBy { providerFailureCount(it) }
+                for (name in sortedFallbacks) {
                     names.add(name)
                 }
             }

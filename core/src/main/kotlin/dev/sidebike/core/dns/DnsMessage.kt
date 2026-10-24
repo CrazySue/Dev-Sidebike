@@ -232,12 +232,12 @@ object DnsCodec {
         val dnssecOk = query.edns0?.dnssecOk ?: false
 
         fun answerBytes(answer: IpAnswer): ByteArray {
-            val out = ByteArray(12 + answerBytesLength(answer))
+            val rdata = ipToBytes(answer.ip) ?: return ByteArray(0)
+            val out = ByteArray(12 + rdata.size)
             putU16(out, 0, 0xC00C) // name: pointer to question name at offset 12
             putU16(out, 2, if (answer.family == 6) DnsType.AAAA else DnsType.A)
             putU16(out, 4, 1) // class IN
             putU32(out, 6, answer.ttlSec.coerceAtLeast(0).toLong() and 0xFFFFFFFFL)
-            val rdata = ipToBytes(answer.ip) ?: return ByteArray(0)
             putU16(out, 10, rdata.size)
             rdata.copyInto(out, 12)
             return out
@@ -281,6 +281,8 @@ object DnsCodec {
         }
         return out
     }
+
+    private fun answerBytesLength(answer: IpAnswer): Int = 12 + if (answer.family == 6) 16 else 4
 
     private fun answerBytesLength(answer: IpAnswer): Int = 12 + if (answer.family == 6) 16 else 4
 

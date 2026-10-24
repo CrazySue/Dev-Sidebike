@@ -86,7 +86,8 @@ object DnsEndpointParser {
             DnsProtocol.AUTO -> inferProtocol(scheme)
             else -> provider.protocol
         }
-        val secure = protocol == DnsProtocol.DOH && (scheme == null || scheme == "https")
+        val secure = protocol == DnsProtocol.DOT ||
+            (protocol == DnsProtocol.DOH && (scheme == null || scheme == "https"))
         val effectivePort = port ?: when (protocol) {
             DnsProtocol.DOT -> 853
             DnsProtocol.DOH -> if (secure) 443 else 80

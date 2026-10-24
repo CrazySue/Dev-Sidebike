@@ -69,8 +69,9 @@ class DomainPatternMatcherTest {
         )
         assertEquals(1, m.match("github.com"))
         val sub = matcher("*api.github.com" to 3, "*.github.com" to 2)
-        // matchHostname 前缀查找顺序：*.host 先于 *host
-        assertEquals(2, sub.match("api.github.com"))
+        // 上游 matchHostname 前缀查找顺序：origin["*.host"] 先于 origin["*host"]；
+        // 对 api.github.com：origin["*.api.github.com"] 不存在，origin["*api.github.com"]=3 命中（正则之前）
+        assertEquals(3, sub.match("api.github.com"))
     }
 
     @Test

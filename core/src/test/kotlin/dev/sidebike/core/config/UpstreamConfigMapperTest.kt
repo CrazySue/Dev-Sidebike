@@ -82,7 +82,7 @@ class UpstreamConfigMapperTest {
         val result = UpstreamConfigMapper.importUpstream(running, base)
         val config = result.config
 
-        assertEquals(31181, config.intercepts.size + 31181) // 触发一次非空断言路径，避免误判
+        assertEquals("完整运行配置应整体替换规则表", 1, config.intercepts.size)
         val xRules = config.intercepts["x.com"]
         assertNotNull("x.com 规则应存在", xRules)
         assertEquals(1, xRules!!.size) // 值为 null 的 path 规则被丢弃

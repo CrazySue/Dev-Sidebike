@@ -45,6 +45,9 @@ class DefaultRuleEngine(
     @Volatile
     private var compiled: Compiled = Compiled(initialConfig, logger)
 
+    @Volatile
+    private var generation: Int = 1
+
     private val planCache = object : LinkedHashMap<String, RoutePlan>(CACHE_SIZE, 0.75f, true) {
         override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, RoutePlan>?): Boolean =
             size > CACHE_SIZE
@@ -62,11 +65,12 @@ class DefaultRuleEngine(
 
     override fun updateConfig(config: SidebikeConfig) {
         compiled = Compiled(config, logger)
+        generation++
         synchronized(planLock) { planCache.clear() }
         logger.info(TAG, "规则引擎配置已更新: intercepts=${config.intercepts.size} 域, whitelist=${config.whiteList.size}")
     }
 
-    fun configVersion(): Int = compiled.version
+    fun configVersion(): Int = generation
 
     // ------------------------------------------------------------------ api.RuleEngine
 
