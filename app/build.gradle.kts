@@ -1,5 +1,3 @@
-import java.util.Properties
-
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.android)
@@ -7,9 +5,31 @@ plugins {
     alias(libs.plugins.kotlin.serialization)
 }
 
+// Beta signing: keystore.properties + _script/keys/sidebike-beta.jks are local-only (gitignored).
+// Without them, release builds fall back to the debug signing config so CI/users can still build.
+val keystorePropertiesFile = rootProject.file("keystore.properties")
+val keystoreProperties = java.util.Properties().apply {
+    if (keystorePropertiesFile.exists()) {
+        java.io.FileInputStream(keystorePropertiesFile).use { load(it) }
+    }
+}
+
 android {
     namespace = "dev.sidebike.app"
     compileSdk = 35
+    // Pin explicitly: the SDK is provisioned offline in this workspace and only has 35.0.0.
+    buildToolsVersion = "35.0.0"
+
+    signingConfigs {
+        if (keystorePropertiesFile.exists()) {
+            create("beta") {
+                storeFile = rootProject.file(keystoreProperties.getProperty("storeFile"))
+                storePassword = keystoreProperties.getProperty("storePassword")
+                keyAlias = keystoreProperties.getProperty("keyAlias")
+                keyPassword = keystoreProperties.getProperty("keyPassword")
+            }
+        }
+    }
 
     defaultConfig {
         applicationId = "dev.sidebike.app"
@@ -39,6 +59,7 @@ android {
         release {
             isMinifyEnabled = false
             isShrinkResources = false
+            signingConfig = if (keystorePropertiesFile.exists()) signingConfigs.getByName("beta") else signingConfigs.getByName("debug")
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
         }
     }

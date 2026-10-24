@@ -1,5 +1,12 @@
 package dev.sidebike.app.ui.theme
 
-// MD3 typography comes from MaterialTheme defaults (Roboto / system font). No custom fonts:
-// strict MD3 compliance forbids non-MD3 typography assets. Kept as a file so the UI workstream
-// can add MD3 type scale tweaks (displayLarge..labelSmall) without touching the theme file.
+import androidx.compose.material3.Typography
+
+/**
+ * Material Design 3 type scale (display / headline / title / body / label, each large/medium/small).
+ *
+ * Strict-MD3 rule: no custom font files and no custom font families. [Typography] with its default
+ * arguments is exactly the MD3 type scale rendered with the platform Roboto/system font, so it is
+ * kept explicit here (rather than relying on an implicit default) to make the token source clear.
+ */
+val SidebikeTypography = Typography()

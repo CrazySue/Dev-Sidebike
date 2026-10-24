@@ -32,5 +32,8 @@ sidebike.ca.*
 # Test / reports
 /out/
 /reports/
+/dist/
+keystore.properties
+/_script/keys/
 *.log
 !docs/**/*.log

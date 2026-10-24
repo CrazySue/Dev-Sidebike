@@ -1,8 +1,227 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
+    <!-- App / VPN service strings (kept for the foreground-service notification and VPN workstream) -->
     <string name="app_name">Dev-Sidebike</string>
     <string name="vpn_channel_name">网络代理状态</string>
     <string name="vpn_channel_desc">Dev-Sidebike 运行状态与连接统计</string>
     <string name="vpn_notification_title">Dev-Sidebike 正在运行</string>
     <string name="vpn_notification_stopped">Dev-Sidebike 已停止</string>
+
+    <!-- ============================ Navigation ============================ -->
+    <string name="nav_home">首页</string>
+    <string name="nav_rules">规则</string>
+    <string name="nav_logs">日志</string>
+    <string name="nav_settings">设置</string>
+    <string name="nav_cert">证书</string>
+
+    <!-- ============================ Run status ============================ -->
+    <string name="status_idle">未运行</string>
+    <string name="status_preparing">正在准备 VPN</string>
+    <string name="status_starting">正在启动</string>
+    <string name="status_running">运行中</string>
+    <string name="status_stopping">正在停止</string>
+    <string name="status_error">启动失败</string>
+
+    <string name="status_desc_idle">点击下方按钮启动防污染 DNS 与本地代理服务</string>
+    <string name="status_desc_preparing">正在申请 VPN 授权并创建本地隧道…</string>
+    <string name="status_desc_starting">正在初始化 DNS 解析器与代理引擎…</string>
+    <string name="status_desc_running">防污染 DNS 与本地 HTTP 代理均已就绪</string>
+    <string name="status_desc_stopping">正在停止服务并释放网络资源…</string>
+    <string name="status_desc_error">服务未能启动，请查看错误详情与运行日志</string>
+
+    <!-- ============================ Home ============================ -->
+    <string name="home_uptime">已运行 %1$s</string>
+    <string name="home_uptime_idle">尚未启动</string>
+    <string name="home_chip_vpn">VPN %1$s</string>
+    <string name="home_chip_proxy">代理 :%1$d</string>
+    <string name="home_chip_mitm">MITM %1$s</string>
+    <string name="state_on">已开启</string>
+    <string name="state_off">已关闭</string>
+    <string name="state_connected">已连接</string>
+    <string name="state_disconnected">未连接</string>
+
+    <string name="home_start">启动服务</string>
+    <string name="home_starting">启动中…</string>
+    <string name="home_stop">停止服务</string>
+    <string name="home_stopping">停止中…</string>
+
+    <string name="home_section_stats">实时数据</string>
+    <string name="home_section_actions">快捷操作</string>
+    <string name="home_section_recent_logs">最近日志</string>
+    <string name="home_action_rules">规则管理</string>
+    <string name="home_action_logs">运行日志</string>
+    <string name="home_action_cert">证书指南</string>
+    <string name="home_action_cert_installed">CA 已安装</string>
+    <string name="home_action_cert_missing">CA 未安装</string>
+    <string name="home_mitm">MITM 增强</string>
+    <string name="home_mitm_desc">需要安装 CA 证书，默认关闭</string>
+    <string name="home_ca_status">CA 证书</string>
+    <string name="home_ca_installed">已安装并信任</string>
+    <string name="home_ca_not_installed">未安装，点击查看安装指南</string>
+    <string name="home_ca_not_generated">尚未生成，请先开启 MITM 并启动服务</string>
+    <string name="home_view_all">查看全部</string>
+    <string name="home_logs_empty_title">暂无日志</string>
+    <string name="home_logs_empty_desc">服务运行后，这里会显示最近的活动记录。</string>
+    <string name="home_error_title">发生错误</string>
+    <string name="home_retry">重试</string>
+    <string name="home_capability_note">DNS 级防污染对全部应用生效；HTTP 代理需应用遵循系统代理；MITM 需安装 CA，且仅部分应用信任用户 CA。</string>
+
+    <!-- ============================ Statistics ============================ -->
+    <string name="stats_total_conn">连接总数</string>
+    <string name="stats_active_conn">活跃连接</string>
+    <string name="stats_bytes_up">上行流量</string>
+    <string name="stats_bytes_down">下行流量</string>
+    <string name="stats_dns_queries">DNS 查询</string>
+    <string name="stats_avg_latency">平均延迟</string>
+    <string name="stats_port">监听端口</string>
+    <string name="stats_dns_cache">DNS 缓存命中</string>
+    <string name="stats_dns_failures">DNS 失败</string>
+    <string name="unit_ms">%1$d ms</string>
+
+    <!-- ============================ Rules ============================ -->
+    <string name="rules_search_hint">搜索域名或规则动作</string>
+    <string name="rules_clear_search">清除搜索</string>
+    <string name="rules_summary">共 %1$d 个域名 · %2$d 条路径规则 · %3$d 个直连放行</string>
+    <string name="rules_empty_title">暂无拦截规则</string>
+    <string name="rules_empty_desc">配置中的 intercepts 规则会显示在这里，可搜索、逐条启停并查看动作详情。</string>
+    <string name="rules_no_result_title">没有匹配的规则</string>
+    <string name="rules_no_result_desc">换个关键词试试，或清除搜索条件。</string>
+    <string name="rules_feature_proxy">启用代理规则</string>
+    <string name="rules_feature_proxy_desc">关闭后所有流量直接放行，不进行规则匹配</string>
+    <string name="rules_feature_mitm">MITM 改写</string>
+    <string name="rules_feature_mitm_desc">需要安装 CA 证书，仅对信任用户 CA 的应用生效</string>
+    <string name="rules_feature_domestic">国内域名直连</string>
+    <string name="rules_feature_domestic_desc">国内域名不进入代理链路</string>
+    <string name="rules_disabled_note">标记为「直连放行」的域名会写入白名单，不参与代理、拦截与 MITM 改写；拦截规则本身保持只读，不会丢失。</string>
+    <string name="rules_direct_only">直连放行（不代理）</string>
+    <string name="rules_direct_only_short">直连放行</string>
+    <string name="rules_rule_count">%1$d 条路径</string>
+    <string name="rules_paths_count">%1$d 条路径规则</string>
+    <string name="rules_action_sni">SNI 伪装</string>
+    <string name="rules_action_proxy">镜像代理</string>
+    <string name="rules_action_success">本地合成响应</string>
+    <string name="rules_action_script">脚本注入</string>
+    <string name="rules_action_status">状态码 %1$d</string>
+    <string name="rules_action_cache">缓存 %1$d 天</string>
+    <string name="rules_action_desc_label">说明</string>
+    <string name="rules_path_label">路径 %1$s</string>
+    <string name="rules_disabled_chip">已停用</string>
+
+    <!-- ============================ Logs ============================ -->
+    <string name="logs_filter_all">全部</string>
+    <string name="logs_clear">清空</string>
+    <string name="logs_export">导出</string>
+    <string name="logs_auto_scroll">自动滚动</string>
+    <string name="logs_count">共 %1$d 条 · 错误 %2$d 条</string>
+    <string name="logs_empty_title">暂无日志</string>
+    <string name="logs_empty_desc">启动服务后，DNS 解析与代理请求的实时日志会显示在这里。</string>
+    <string name="logs_no_match_title">当前筛选条件下没有日志</string>
+    <string name="logs_no_match_desc">切换级别筛选条件可查看其他日志。</string>
+    <string name="logs_cleared">日志已清空</string>
+    <string name="logs_export_sheet_title">诊断信息</string>
+    <string name="logs_export_sheet_desc">包含版本、设备、当前配置与最近日志。复制后可在反馈问题时附上。</string>
+    <string name="logs_copy">复制</string>
+    <string name="logs_copied">已复制到剪贴板</string>
+    <string name="logs_close">关闭</string>
+    <string name="logs_level_debug">DEBUG</string>
+    <string name="logs_level_info">INFO</string>
+    <string name="logs_level_warn">WARN</string>
+    <string name="logs_level_error">ERROR</string>
+
+    <!-- ============================ Settings ============================ -->
+    <string name="settings_section_proxy">代理服务</string>
+    <string name="settings_proxy_port">代理端口</string>
+    <string name="settings_proxy_port_desc">本地 HTTP/HTTPS 代理共用端口（默认 31181）</string>
+    <string name="settings_system_proxy">系统 HTTP 代理</string>
+    <string name="settings_system_proxy_desc">通过 VpnService 下发系统代理（Android 10+）</string>
+    <string name="settings_bypass_domestic">国内域名直连</string>
+    <string name="settings_bypass_domestic_desc">国内域名不进入代理链路，减少无谓开销</string>
+    <string name="settings_section_dns">DNS 解析</string>
+    <string name="settings_dns_enabled">接管 DNS 查询</string>
+    <string name="settings_dns_enabled_desc">通过 VPN 拦截 DNS 并返回防污染结果</string>
+    <string name="settings_dns_mode">DNS 模式</string>
+    <string name="dns_mode_smart">智能分流</string>
+    <string name="dns_mode_doh">DoH 优先</string>
+    <string name="dns_mode_single">单路调试</string>
+    <string name="settings_dns_vpn_address">下发给应用的 DNS 地址</string>
+    <string name="settings_dns_providers">DNS 提供商</string>
+    <string name="settings_section_mitm">MITM 与证书</string>
+    <string name="settings_mitm">MITM 增强</string>
+    <string name="settings_mitm_desc">需要安装并信任 CA 证书，默认关闭</string>
+    <string name="settings_ca_status">CA 证书状态</string>
+    <string name="settings_ca_installed">已安装并信任</string>
+    <string name="settings_ca_not_installed">未安装</string>
+    <string name="settings_ca_not_generated">尚未生成（需开启 MITM 并启动服务）</string>
+    <string name="settings_refresh_ca">重新检测</string>
+    <string name="settings_open_cert">证书指南</string>
+    <string name="settings_section_general">通用</string>
+    <string name="settings_auto_start">开机自启动</string>
+    <string name="settings_auto_start_desc">系统重启后自动拉起 VPN 服务</string>
+    <string name="settings_section_appearance">外观</string>
+    <string name="settings_theme">主题模式</string>
+    <string name="theme_system">跟随系统</string>
+    <string name="theme_light">浅色</string>
+    <string name="theme_dark">深色</string>
+    <string name="settings_dynamic_color">动态取色</string>
+    <string name="settings_dynamic_color_desc">Android 12+ 从系统壁纸取色（Material You）</string>
+    <string name="settings_section_about">关于</string>
+    <string name="settings_about">关于 Dev-Sidebike</string>
+    <string name="settings_about_desc">版本 %1$s · beta</string>
+    <string name="settings_licenses">开源许可与致谢</string>
+    <string name="settings_licenses_desc">MPL-2.0 · 上游 Dev-Sidecar</string>
+    <string name="settings_version_footer">Dev-Sidebike v%1$s · Material Design 3</string>
+
+    <string name="port_dialog_title">修改代理端口</string>
+    <string name="port_dialog_desc">端口范围 1024–65535，修改后需重启服务生效。</string>
+    <string name="port_invalid">请输入 1024–65535 之间的端口号</string>
+    <string name="action_cancel">取消</string>
+    <string name="action_save">保存</string>
+    <string name="action_close">关闭</string>
+    <string name="action_retry">重试</string>
+
+    <!-- ============================ Certificate guide ============================ -->
+    <string name="cert_hero_title">CA 证书状态</string>
+    <string name="cert_status_installed">已安装</string>
+    <string name="cert_status_not_installed">未安装</string>
+    <string name="cert_status_not_generated">尚未生成</string>
+    <string name="cert_hero_desc_installed">系统已信任本应用的用户 CA，开启 MITM 后即可改写指定域名的 HTTP 流量。</string>
+    <string name="cert_hero_desc_not_installed">开启 MITM 需要安装并信任本应用的 CA 证书，安装前 MITM 改写不可用。</string>
+    <string name="cert_hero_desc_not_generated">请先在「设置 → MITM 与证书」中开启 MITM 并启动一次服务，以生成本地 CA。</string>
+    <string name="cert_install">安装 CA 证书</string>
+    <string name="cert_export">导出 CA 证书</string>
+    <string name="cert_steps_title">安装步骤</string>
+    <string name="cert_step1_title">1. 开启 MITM 增强</string>
+    <string name="cert_step1_desc">在「设置 → MITM 与证书」中开启 MITM，并启动一次服务以生成 CA 证书。</string>
+    <string name="cert_step2_title">2. 安装证书</string>
+    <string name="cert_step2_desc">点击「安装 CA 证书」，在系统证书安装器中确认安装。系统会提示“您的数据可能被监控”。</string>
+    <string name="cert_step3_title">3. 确认信任状态</string>
+    <string name="cert_step3_desc">打开系统「设置 → 安全 → 加密与凭据 → 信任的凭据 → 用户」，确认存在 Dev-Sidebike CA。</string>
+    <string name="cert_step4_title">4. 返回验证</string>
+    <string name="cert_step4_desc">回到本应用点击「重新检测」，状态显示“已安装”即完成，之后可重启服务使用 MITM 改写。</string>
+    <string name="cert_limits_title">能力边界</string>
+    <string name="cert_limits_body">Android 7 及以上仅部分应用（例如浏览器）信任用户 CA。不信任用户 CA 的应用无法进行 MITM 改写，但仍可通过 VPN DNS 获得防污染解析。MITM 默认关闭，属于增强项。</string>
+    <string name="cert_generated_hint">尚未生成 CA：请先开启 MITM 并启动一次服务</string>
+    <string name="cert_install_failed">无法打开证书安装器，请尝试导出证书后手动安装</string>
+    <string name="cert_export_failed">CA 证书尚未生成，无法导出</string>
+    <string name="cert_export_chooser">导出 Dev-Sidebike CA 证书</string>
+    <string name="cert_share_subject">Dev-Sidebike CA 证书</string>
+    <string name="cert_open_settings">打开设置</string>
+
+    <!-- ============================ About / licenses ============================ -->
+    <string name="about_title">关于 Dev-Sidebike</string>
+    <string name="about_version">版本 %1$s（beta）</string>
+    <string name="about_body">Dev-Sidebike 是 Dev-Sidecar 的 Android 重写版：通过 VpnService 提供系统级防污染 DNS，并在本机运行 HTTP/HTTPS 代理，为开发者的网络访问提供加速与诊断能力。</string>
+    <string name="about_upstream_title">上游项目</string>
+    <string name="about_upstream_body">Dev-Sidecar · docmirror · MPL-2.0 许可</string>
+    <string name="about_license_title">开源许可</string>
+    <string name="about_license_body">本应用基于 Material Design 3 构建，使用 AndroidX / Jetpack Compose（Apache-2.0）。上游 Dev-Sidecar 以 Mozilla Public License 2.0 发布，本应用的对应源码同样以 MPL-2.0 提供。</string>
+    <string name="about_tech_title">技术栈</string>
+    <string name="about_tech_body">Jetpack Compose · Material 3 · Kotlin Coroutines · VpnService（纯 Kotlin 后端内核）</string>
+
+    <!-- ============================ Generic ============================ -->
+    <string name="generic_on">开</string>
+    <string name="generic_off">关</string>
+    <string name="generic_enabled">已启用</string>
+    <string name="generic_disabled">已停用</string>
+    <string name="generic_loading">加载中…</string>
 </resources>
