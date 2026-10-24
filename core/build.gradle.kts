@@ -1,3 +1,5 @@
+import java.time.Duration
+
 // Dev-Sidebike backend core — pure Kotlin/JVM, Android-compatible APIs only
 // (no java.net.http, no java.awt, no sun.* imports). Runs unmodified on the JVM for tests.
 plugins {
@@ -21,6 +23,8 @@ dependencies {
 
 tasks.test {
     useJUnit()
+    // Safety net: a hung test must not block the whole three-environment pipeline.
+    timeout.set(Duration.ofMinutes(10))
     testLogging {
         events("passed", "failed", "skipped")
         showStandardStreams = false

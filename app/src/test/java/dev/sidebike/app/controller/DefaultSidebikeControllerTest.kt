@@ -191,6 +191,31 @@ class DefaultSidebikeControllerTest {
     }
 
     @Test
+    fun dnsProbeFailureAbortsBeforeVpnIsEstablished() {
+        // Engine starts and its proxy port probes fine, but DNS resolution is broken: the controller
+        // must NOT establish the VPN (otherwise every app would lose DNS = device-wide black hole).
+        SidebikeEngineFactory.install { _, initialConfig, _ ->
+            FakeEngine(initialConfig).also {
+                it.dnsProbeHealthy = false
+                createdEngine = it
+            }
+        }
+        controller.close()
+        controller = createController()
+
+        controller.start()
+        val state = awaitState { it.status == RunStatus.ERROR }
+
+        assertFalse(state.vpnActive)
+        assertTrue(
+            "error must explain the DNS abort, was: ${state.lastError}",
+            state.lastError?.contains("DNS") == true,
+        )
+        assertEquals("VPN must never be started when DNS is unusable", 0, gateway.starts.size)
+        assertTrue("failed engine must be released", createdEngine!!.stopCalls >= 1)
+    }
+
+    @Test
     fun revokedVpnReportsErrorAndStopsEngine() {
         controller.start()
         awaitState { it.status == RunStatus.RUNNING }
@@ -359,6 +384,9 @@ class DefaultSidebikeControllerTest {
         var caPem: String? = null
 
         @Volatile
+        var dnsProbeHealthy: Boolean = true
+
+        @Volatile
         var startCalls: Int = 0
 
         @Volatile
@@ -397,7 +425,20 @@ class DefaultSidebikeControllerTest {
 
         override fun currentConfig(): SidebikeConfig = currentConfig
 
-        override suspend fun resolveRawDnsQuery(query: ByteArray): ByteArray? = null
+        override suspend fun resolveRawDnsQuery(query: ByteArray): ByteArray? {
+            // Minimal usable DNS response: QR=1, RA=1, RCODE=0, ANCOUNT=1 (enough for DnsProbe).
+            if (!dnsProbeHealthy) return null
+            val response = ByteArray(12)
+            if (query.size >= 2) {
+                response[0] = query[0]
+                response[1] = query[1]
+            }
+            response[2] = 0x81.toByte() // QR=1, RD=1
+            response[3] = 0x80.toByte() // RA=1, RCODE=0
+            response[5] = 1 // QDCOUNT
+            response[7] = 1 // ANCOUNT
+            return response
+        }
 
         override fun stats(): EngineStats = EngineStats(
             traffic = TrafficStats(dnsQueries = 7),

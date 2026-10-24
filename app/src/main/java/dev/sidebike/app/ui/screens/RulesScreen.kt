@@ -34,6 +34,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.ListItem
 import androidx.compose.material3.ListItemDefaults
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
@@ -142,6 +143,7 @@ fun RulesScreen(
     contentPadding: PaddingValues,
     onConfigChange: (SidebikeConfig) -> Unit,
     modifier: Modifier = Modifier,
+    onReloadConfig: () -> Unit = {},
 ) {
     var query by rememberSaveable { mutableStateOf("") }
     var expandedDomain by rememberSaveable { mutableStateOf<String?>(null) }
@@ -271,6 +273,11 @@ fun RulesScreen(
                         icon = Icons.Outlined.Inbox,
                         title = stringResource(R.string.rules_empty_title),
                         description = stringResource(R.string.rules_empty_desc),
+                        action = {
+                            OutlinedButton(onClick = onReloadConfig) {
+                                Text(stringResource(R.string.rules_reload_config))
+                            }
+                        },
                     )
                 } else {
                     EmptyState(

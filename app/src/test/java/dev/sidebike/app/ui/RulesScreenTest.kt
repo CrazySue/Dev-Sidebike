@@ -22,6 +22,7 @@ import org.junit.Test
 class RulesScreenTest : ComposeTestBase() {
 
     private var lastConfig: SidebikeConfig? = null
+    private var reloadCalls = 0
 
     private fun setRules(config: SidebikeConfig = PreviewData.config) {
         setScreen {
@@ -29,6 +30,7 @@ class RulesScreenTest : ComposeTestBase() {
                 config = config,
                 contentPadding = PaddingValues(0.dp),
                 onConfigChange = { lastConfig = it },
+                onReloadConfig = { reloadCalls++ },
             )
         }
     }
@@ -72,6 +74,8 @@ class RulesScreenTest : ComposeTestBase() {
         setRules(PreviewData.emptyConfig)
 
         composeRule.onNodeWithText("暂无拦截规则").assertExists()
+        composeRule.onNodeWithText("重新加载配置").performClick()
+        assertEquals(1, reloadCalls)
     }
 
     @Test

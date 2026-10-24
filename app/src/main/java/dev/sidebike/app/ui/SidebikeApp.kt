@@ -90,6 +90,8 @@ fun SidebikeApp(
     viewModel: SidebikeViewModel,
     requestStart: () -> Unit = viewModel::start,
     modifier: Modifier = Modifier,
+    notificationsDenied: Boolean = false,
+    onRequestNotificationPermission: () -> Unit = {},
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     val logs by viewModel.logs.collectAsStateWithLifecycle()
@@ -99,11 +101,14 @@ fun SidebikeApp(
         requestStart = requestStart,
         onStop = viewModel::stop,
         onConfigChange = { config -> viewModel.updateConfig(config) },
+        onReloadConfig = { viewModel.reloadConfig() },
         onClearLogs = viewModel::clearLogs,
         onRefreshCaInstalled = viewModel::refreshCaInstalled,
         onExportDiagnostics = { viewModel.exportDiagnostics() },
         onLoadCaPem = { viewModel.caCertificatePem() },
         modifier = modifier,
+        notificationsDenied = notificationsDenied,
+        onRequestNotificationPermission = onRequestNotificationPermission,
     )
 }
 
@@ -122,6 +127,9 @@ fun SidebikeAppContent(
     onExportDiagnostics: suspend () -> String,
     onLoadCaPem: suspend () -> String?,
     modifier: Modifier = Modifier,
+    onReloadConfig: suspend () -> Unit = {},
+    notificationsDenied: Boolean = false,
+    onRequestNotificationPermission: () -> Unit = {},
 ) {
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
@@ -136,6 +144,9 @@ fun SidebikeAppContent(
     }
     val onConfigChangeUi: (SidebikeConfig) -> Unit = { config ->
         scope.launch { onConfigChange(config) }
+    }
+    val onReloadConfigUi: () -> Unit = {
+        scope.launch { onReloadConfig() }
     }
     val onExportDiagnosticsUi: () -> Unit = {
         scope.launch { exportText = onExportDiagnostics() }
@@ -193,7 +204,6 @@ fun SidebikeAppContent(
         topBar = {
             SidebikeTopBar(
                 destination = currentDestination,
-                state = state,
                 scrollBehavior = topBarScrollBehavior,
                 onOpenLogs = { currentRoute = SidebikeDestination.LOGS.route },
                 onOpenCertGuide = { currentRoute = SidebikeDestination.CERT_GUIDE.route },
@@ -238,12 +248,15 @@ fun SidebikeAppContent(
                     onOpenCertGuide = { currentRoute = SidebikeDestination.CERT_GUIDE.route },
                     onToggleMitm = { enabled -> onConfigChangeUi(state.config.withMitmEnabled(enabled)) },
                     onRefreshCa = onRefreshCaInstalled,
+                    notificationsDenied = notificationsDenied,
+                    onRequestNotificationPermission = onRequestNotificationPermission,
                 )
 
                 SidebikeDestination.RULES -> RulesScreen(
                     config = state.config,
                     contentPadding = innerPadding,
                     onConfigChange = onConfigChangeUi,
+                    onReloadConfig = onReloadConfigUi,
                 )
 
                 SidebikeDestination.LOGS -> LogsScreen(
@@ -300,7 +313,6 @@ private fun SidebikeConfig.withMitmEnabled(enabled: Boolean): SidebikeConfig = c
 @Composable
 private fun SidebikeTopBar(
     destination: SidebikeDestination,
-    state: SidebikeUiState,
     scrollBehavior: androidx.compose.material3.TopAppBarScrollBehavior,
     onOpenLogs: () -> Unit,
     onOpenCertGuide: () -> Unit,
@@ -308,20 +320,7 @@ private fun SidebikeTopBar(
     if (destination == SidebikeDestination.HOME) {
         LargeTopAppBar(
             title = {
-                Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                    Text(text = stringResource(R.string.app_name))
-                    AnimatedContent(
-                        targetState = state.status,
-                        transitionSpec = { m3FadeThrough() },
-                        label = "topBarStatus",
-                    ) { status ->
-                        Text(
-                            text = stringResource(StatusVisuals.labelRes(status)),
-                            style = MaterialTheme.typography.labelMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    }
-                }
+                Text(text = stringResource(R.string.app_name))
             },
             actions = {
                 IconButton(onClick = onOpenLogs) {

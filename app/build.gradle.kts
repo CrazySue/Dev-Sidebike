@@ -1,3 +1,5 @@
+import java.io.FileInputStream
+import java.time.Duration
 import java.util.Properties
 
 plugins {
@@ -67,6 +69,12 @@ android {
             applicationIdSuffix = ".debug"
             versionNameSuffix = "-debug"
             isMinifyEnabled = false
+            // Debug builds additionally ship x86_64/x86 so the QA Android emulator (x86_64 host image)
+            // can install and exercise the app. Release stays ARM-only per the project requirement
+            // (arm64-v8a + armeabi-v7a), keeping other ABIs as a one-line extension.
+            ndk {
+                abiFilters += listOf("x86_64", "x86")
+            }
         }
         release {
             isMinifyEnabled = false
@@ -105,6 +113,8 @@ android {
                 it.systemProperty("robolectric.dependency.repo.url", "https://maven.aliyun.com/repository/public")
                 it.systemProperty("robolectric.dependency.repo.id", "aliyun-public")
                 it.maxHeapSize = "2g"
+                // Safety net: Compose/Robolectric tests that deadlock must NOT block the whole pipeline.
+                it.timeout.set(Duration.ofMinutes(10))
             }
         }
     }

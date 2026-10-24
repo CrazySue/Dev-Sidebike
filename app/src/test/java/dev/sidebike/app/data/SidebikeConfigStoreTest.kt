@@ -5,6 +5,7 @@ import androidx.test.core.app.ApplicationProvider
 import dev.sidebike.core.api.DnsProtocol
 import dev.sidebike.core.api.InterceptAction
 import dev.sidebike.core.api.SidebikeConfig
+import dev.sidebike.core.config.BundledConfig
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
@@ -35,11 +36,16 @@ class SidebikeConfigStoreTest {
     }
 
     @Test
-    fun loadWithoutPersistedConfigReturnsDefaults() {
+    fun loadWithoutPersistedConfigReturnsBundledDefaults() {
         val config = store.load()
-        assertEquals(SidebikeConfig(), config)
-        assertEquals("10.111.0.2", config.dns.vpnDnsAddress)
+        // QA-004: first launch must show the bundled official rules, not an empty config.
+        assertTrue("bundled intercept rules must be present", config.intercepts.isNotEmpty())
+        assertTrue("bundled whitelist must be present", config.whiteList.isNotEmpty())
+        assertTrue("bundled DNS providers must be present", config.dns.providers.isNotEmpty())
         assertEquals(31181, config.proxy.port)
+        assertEquals("10.111.0.2", config.dns.vpnDnsAddress)
+        // Must be exactly what `core` bundles (so the Rules page shows the expected ~69 domains).
+        assertEquals(BundledConfig.load(), config)
     }
 
     @Test
@@ -67,14 +73,15 @@ class SidebikeConfigStoreTest {
     }
 
     @Test
-    fun corruptBlobFallsBackToDefaultsInsteadOfCrashing() {
+    fun corruptBlobFallsBackToBundledDefaultsInsteadOfCrashing() {
         context.getSharedPreferences(SidebikeConfigStore.PREFS_NAME, Context.MODE_PRIVATE)
             .edit()
             .putString(SidebikeConfigStore.KEY_CONFIG_JSON, "{ this is not json")
             .commit()
 
         val config = store.load()
-        assertEquals(SidebikeConfig(), config)
+        assertTrue("corrupt blob must fall back to bundled rules", config.intercepts.isNotEmpty())
+        assertEquals(BundledConfig.load(), config)
     }
 
     @Test
@@ -184,9 +191,9 @@ class SidebikeConfigStoreTest {
     }
 
     @Test
-    fun importGarbageReportsWarningAndDefaults() {
+    fun importGarbageReportsWarningAndBundledDefaults() {
         val result = store.importUpstream("not-a-json-document")
         assertTrue(result.warnings.isNotEmpty())
-        assertEquals(SidebikeConfig(), result.config)
+        assertTrue("import failure must not wipe the bundled rules", result.config.intercepts.isNotEmpty())
     }
 }

@@ -53,14 +53,14 @@
 | - | --- | --- | --- | --- |
 | H1 | RunStatus 变化 → Hero 容器/内容/强调色 | `Surface` + `animateColorAsState` | `Standard` | `Medium2` (300ms) |
 | H2 | RunStatus 变化 → Hero 圆角 shape morph（16dp ↔ 28dp） | `RoundedCornerShape(animateDpAsState)` | `EmphasizedDecelerate` | `Medium2` |
-| H3 | RunStatus 变化 → 状态标题/说明内容 | `AnimatedContent`（fade-through） | enter `EmphasizedDecelerate` / exit `EmphasizedAccelerate` | `Medium1` (250) / `Short2` (100) |
-| H4 | 顶栏状态副标题变化 | `AnimatedContent`（fade-through） | 同上 | 同上 |
+| H3 | RunStatus 变化 → Hero headline/subtitle 内容（headline 带运行时长，subtitle 为能力行） | `AnimatedContent`（fade-through） | enter `EmphasizedDecelerate` / exit `EmphasizedAccelerate` | `Medium1` (250) / `Short2` (100) |
+| H4 | Android 13+ 通知权限被拒绝 → 首页提示横幅 | `AnimatedVisibility` + `InfoBanner`（含「允许通知」重试动作） | enter `EmphasizedDecelerate` / exit `EmphasizedAccelerate` | `Medium2` / `Short4` |
 | H5 | RUNNING / 进行中 → 状态点呼吸 | `rememberInfiniteTransition` + `animateFloat`（alpha 1→0.25，Reverse） | `StandardDecelerate` | `ExtraLong1` (700) |
 | H6 | 进入 busy（PREPARING/STARTING/STOPPING）→ 线性进度条出现 | `AnimatedVisibility` + `LinearProgressIndicator` | `EmphasizedDecelerate`（expand） | `Medium2` |
 | H7 | 离开 busy → 进度条消失 | `AnimatedVisibility` shrink | `EmphasizedAccelerate` | `Short4` (200) |
 | H8 | busy 时顶行显示 CircularProgressIndicator | MD3 `CircularProgressIndicator`（MD3 内建 indeterminate 动画） | 组件内建 | 连续 |
 | H9 | 错误出现/消失（lastError） | `AnimatedVisibility` + `InfoBanner` | enter `EmphasizedDecelerate` / exit `EmphasizedAccelerate` | `Medium2` / `Short4` |
-| H10 | CA 状态行文案变化 | 随 Hero 内容色 `animateColorAsState`，文案即时更新 | `Standard` | `Medium2` |
+| H10 | CA/MITM 状态文案变化（MITM 未启用 → 需要安装 CA → 证书已就绪） | 文案由 `mitmCaStatusOf()` 状态映射驱动；Hero 内容色随 `animateColorAsState` 过渡 | `Standard` | `Medium2` |
 | H11 | 环境提示出现（Private DNS / lockdown / 系统代理未生效 / 端口回退） | `AnimatedVisibility` + `InfoBanner` | enter `EmphasizedDecelerate` / exit `EmphasizedAccelerate` | `Medium2` / `Short4` |
 | H12 | IDLE/ERROR ↔ RUNNING（启动/停止按钮形态 morph） | `RunControlButton`：容器/内容色 `animateColorAsState` | `Standard` | `Medium2` |
 | H13 | 同上 → 按钮文案/图标/进度指示器内容切换 | `AnimatedContent`（fade-through + resize） | `EmphasizedDecelerate` / `EmphasizedAccelerate` | `Medium1` / `Short2`；size `Medium2` |
@@ -94,7 +94,7 @@
 | R4 | 展开箭头旋转 0°→180° | `animateFloatAsState` + `Modifier.rotate` | `EmphasizedDecelerate` | `Medium2` |
 | R5 | 直连放行 Switch 切换 | MD3 `Switch` 内建动画 + 持久化后列表项重排（R2） | 组件内建 / `Standard`（placement） | 组件内建 / `Medium2` |
 | R6 | 功能开关（代理规则/MITM/国内直连）切换 | MD3 `Switch` 内建动画 | 组件内建 MD3 token | 组件内建 |
-| R7 | 空结果 / 空配置状态出现 | 列表项替换（R2 fade）+ `EmptyState` | 同 R2 | 同 R2 |
+| R7 | 空结果 / 空配置状态出现 | 列表项替换（R2 fade）+ `EmptyState`（空配置时提供「重新加载配置」动作） | 同 R2 | 同 R2 |
 | R8 | 动作类型 chips（SNI/镜像/合成…）随数据出现 | 随卡片展开（R3） | 同 R3 | 同 R3 |
 
 ### 3.4 日志页（Logs）
@@ -118,7 +118,7 @@
 | S3 | 任意 Switch（系统代理/国内直连/DNS 接管/MITM/自启动/动态取色/Provider） | MD3 `Switch` 内建动画；开关行容器色 `animateColorAsState` | `Standard`（行颜色） | `Medium2` |
 | S4 | 修改代理端口（点行 → Dialog → 保存） | MD3 `AlertDialog` 内建进入/退出动画；保存后数值重绘 | 组件内建 | 组件内建 |
 | S5 | 打开关于 / 开源许可 Dialog | MD3 `AlertDialog` 内建动画 | 组件内建 | 组件内建 |
-| S6 | MITM 开关 → 证书状态文案变化 | 文案即时更新（配置持久化 ← controller 回推 state） | —（数据变化，无位移动画） | — |
+| S6 | MITM 开关 → 证书状态文案变化（MITM 未启用 / 需要安装 CA / 已安装并信任） | 状态映射 `mitmCaStatusOf()`；开关行/卡片颜色使用 `animateColorAsState` | `Standard` | `Medium2` |
 | S7 | Provider 列表项开关 | MD3 `Switch` 内建动画 | 组件内建 | 组件内建 |
 
 ### 3.6 证书指南（CertGuide）

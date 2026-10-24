@@ -167,18 +167,61 @@ class UdpDnsCodecTest {
     }
 
     @Test
-    fun oversizedResolverResponseIsTruncatedNotDropped() {
+    fun oversizedResolverResponseIsTrimmedAndNeverSetsTc() {
         val query = dnsQuery(id = 9, name = "large.example.com")
         val request = (handler.classify(ipv4UdpPacket(query, dstAddress = vpnDns))
             as DnsTunHandler.Classified.Dns).request
-        val oversized = ByteArray(handler.maxDnsPayload + 200)
-        System.arraycopy(query, 0, oversized, 0, 2) // same transaction id
+        val response = dnsResponseWithTxtAnswers(query, answerCount = 4, rdataSize = 600)
+        assertTrue("test setup: response must exceed the MTU", response.size > handler.maxDnsPayload)
 
-        val packet = handler.buildReply(request, oversized)!!
-        val dns = IpPacket.parseUdp(IpPacket.parseIpv4(packet)!!.payload)!!.payload
+        val packet = handler.buildReply(request, response)!!
+        val ip = IpPacket.parseIpv4(packet)!!
+        val dns = IpPacket.parseUdp(ip.payload)!!.payload
         assertTrue("reply must fit the MTU", dns.size <= handler.maxDnsPayload)
-        assertTrue("TC bit must be set", DnsWire.u16(dns, 2) and 0x0200 != 0)
+        assertEquals("TC must stay 0 (no TCP:53 path exists)", 0, DnsWire.u16(dns, 2) and 0x0200)
         assertEquals(9, DnsWire.u16(dns, 0))
+        val answers = DnsWire.u16(dns, 6)
+        assertTrue("answers must be trimmed but not emptied: $answers", answers in 1 until 4)
+        assertEquals(DnsWire.RCODE_NO_ERROR, DnsWire.u16(dns, 2) and 0x0F)
+        assertTrue(IpPacket.isValidIpv4HeaderChecksum(packet))
+        assertEquals(0xFFFF, onesComplementSumWithPseudoHeader(ip.sourceAddress, ip.destinationAddress, ip.payload))
+    }
+
+    @Test
+    fun responseThatFitsIsNotTrimmed() {
+        val query = dnsQuery(id = 10, name = "small.example.com")
+        val request = (handler.classify(ipv4UdpPacket(query, dstAddress = vpnDns))
+            as DnsTunHandler.Classified.Dns).request
+        val response = dnsResponseWithTxtAnswers(query, answerCount = 1, rdataSize = 600)
+        assertTrue(response.size <= handler.maxDnsPayload)
+
+        val dns = IpPacket.parseUdp(IpPacket.parseIpv4(handler.buildReply(request, response)!!)!!.payload)!!.payload
+        assertEquals(response.size, dns.size)
+        assertEquals(1, DnsWire.u16(dns, 6))
+        assertEquals(0, DnsWire.u16(dns, 2) and 0x0200)
+    }
+
+    @Test
+    fun edns0UdpPayloadSizeIsClampedBeforeResolverSeesIt() {
+        val query = dnsQuery(id = 11, name = "big.example.com", edns = true, ednsUdpSize = 4096)
+        val request = (handler.classify(ipv4UdpPacket(query, dstAddress = vpnDns))
+            as DnsTunHandler.Classified.Dns).request
+        val info = DnsWire.inspect(request.dnsQuery)!!
+        // OPT record starts right after the question: NAME(1) + TYPE(2), then CLASS == UDP payload size.
+        assertEquals(
+            DnsWire.MTU_SAFE_EDNS_UDP_PAYLOAD,
+            DnsWire.u16(request.dnsQuery, info.questionSectionEnd + 3),
+        )
+        // The original wire query is left untouched (defensive copy).
+        assertEquals(4096, DnsWire.u16(query, info.questionSectionEnd + 3))
+    }
+
+    @Test
+    fun queryWithoutEdns0IsNotModifiedByClamp() {
+        val query = dnsQuery(id = 12, name = "plain.example.com")
+        val request = (handler.classify(ipv4UdpPacket(query, dstAddress = vpnDns))
+            as DnsTunHandler.Classified.Dns).request
+        assertArrayEquals(query, request.dnsQuery)
     }
 
     @Test
@@ -202,6 +245,35 @@ class UdpDnsCodecTest {
     }
 
     // ---------------------------------------------------------------- helpers
+
+    /** Builds a DNS response for [query] with [answerCount] TXT answers whose RDATA is [rdataSize] bytes. */
+    private fun dnsResponseWithTxtAnswers(query: ByteArray, answerCount: Int, rdataSize: Int): ByteArray {
+        val info = DnsWire.inspect(query)!!
+        val output = java.io.ByteArrayOutputStream()
+        val header = ByteArray(DnsWire.HEADER_SIZE)
+        DnsWire.writeU16(header, 0, DnsWire.u16(query, 0))
+        DnsWire.writeU16(header, 2, 0x8180) // QR=1, RD=1, RA=1, RCODE=0
+        DnsWire.writeU16(header, 4, 1) // QDCOUNT
+        DnsWire.writeU16(header, 6, answerCount) // ANCOUNT
+        output.write(header)
+        output.write(query, DnsWire.HEADER_SIZE, info.questionSectionEnd - DnsWire.HEADER_SIZE)
+        repeat(answerCount) {
+            output.write(0xC0) // compressed name -> question name
+            output.write(0x0C)
+            writeU16BigEndian(output, 16) // TYPE TXT
+            writeU16BigEndian(output, 1) // CLASS IN
+            writeU16BigEndian(output, 0) // TTL high
+            writeU16BigEndian(output, 60) // TTL low
+            writeU16BigEndian(output, rdataSize) // RDLENGTH
+            repeat(rdataSize) { output.write(0x41) }
+        }
+        return output.toByteArray()
+    }
+
+    private fun writeU16BigEndian(output: java.io.ByteArrayOutputStream, value: Int) {
+        output.write((value ushr 8) and 0xFF)
+        output.write(value and 0xFF)
+    }
 
     private fun assertIgnored(packet: ByteArray) {
         val classified = handler.classify(packet)
@@ -284,10 +356,11 @@ internal fun dnsQuery(
     name: String,
     qtype: Int = DnsWire.QTYPE_A,
     edns: Boolean = false,
+    ednsUdpSize: Int = 1232,
 ): ByteArray {
     val question = encodeQuestion(name, qtype)
     val header = dnsHeader(id = id, qdCount = 1, arCount = if (edns) 1 else 0)
-    return if (edns) header + question + emptyOptRecord() else header + question
+    return if (edns) header + question + emptyOptRecord(ednsUdpSize) else header + question
 }
 
 internal fun dnsHeader(id: Int, qdCount: Int, arCount: Int = 0): ByteArray {
@@ -316,10 +389,10 @@ internal fun encodeQuestion(name: String, qtype: Int): ByteArray {
     return result
 }
 
-internal fun emptyOptRecord(): ByteArray = byteArrayOf(
+internal fun emptyOptRecord(udpPayloadSize: Int = 1232): ByteArray = byteArrayOf(
     0x00, // root name
     0x00, 0x29, // type OPT
-    0x04, 0xD0.toByte(), // UDP payload size 1232
+    ((udpPayloadSize ushr 8) and 0xFF).toByte(), (udpPayloadSize and 0xFF).toByte(), // class = UDP payload size
     0x00, 0x00, 0x00, 0x00, // ttl
     0x00, 0x00, // rdlength
 )

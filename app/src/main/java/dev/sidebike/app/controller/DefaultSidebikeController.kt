@@ -13,6 +13,7 @@ import dev.sidebike.app.data.SidebikeConfigStore
 import dev.sidebike.app.data.SidebikeRuntime
 import dev.sidebike.app.state.RunStatus
 import dev.sidebike.app.state.SidebikeUiState
+import dev.sidebike.app.vpn.DnsProbe
 import dev.sidebike.app.vpn.VpnPhase
 import dev.sidebike.app.vpn.VpnServiceBridge
 import dev.sidebike.core.api.EngineStats
@@ -391,7 +392,24 @@ class DefaultSidebikeController internal constructor(
         }
         log(LogLevel.INFO, "controller", "引擎已启动（代理端口 ${if (proxyPort > 0) proxyPort else "未启用"}）")
 
-        // --- 4. start the VPN service --------------------------------------------------------
+        // --- 4. DNS readiness probe: never establish the VPN behind a broken resolver -----------
+        // Otherwise every app's DNS is routed into the tun but nothing can be resolved (device-wide
+        // DNS black hole). Fail before the VPN exists so the network stays untouched.
+        val dnsReady = try {
+            DnsProbe.probe(startedEngine, DNS_PROBE_TIMEOUT_MS)
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (error: Throwable) {
+            Log.w(TAG, "DNS readiness probe failed with error", error)
+            false
+        }
+        if (!dnsReady) {
+            failStart(appContext.getString(R.string.vpn_error_dns_unavailable), null)
+            return
+        }
+        log(LogLevel.INFO, "controller", "DNS 就绪探测通过")
+
+        // --- 5. start the VPN service --------------------------------------------------------
         if (!transition(setOf(RunStatus.PREPARING), RunStatus.STARTING, "正在建立 VPN…")) return
 
         VpnServiceBridge.reset()
@@ -898,6 +916,7 @@ class DefaultSidebikeController internal constructor(
         private const val PORT_PROBE_TIMEOUT_MS = 500
         private const val PORT_PROBE_INTERVAL_MS = 100L
         private const val PROXY_READY_TIMEOUT_MS = 3_000L
+        private const val DNS_PROBE_TIMEOUT_MS = 3_000L
         private const val PROXY_WATCHDOG_THRESHOLD = 2
         private const val SYSTEM_PROXY_VERIFY_ATTEMPTS = 4
         private const val SYSTEM_PROXY_VERIFY_DELAY_MS = 400L

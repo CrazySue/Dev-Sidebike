@@ -1,15 +1,23 @@
 package dev.sidebike.app.ui
 
+import android.Manifest
 import android.app.Activity
+import android.content.pm.PackageManager
 import android.net.VpnService
+import android.os.Build
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
+import androidx.core.content.ContextCompat
 import androidx.core.view.WindowCompat
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LifecycleEventEffect
@@ -19,10 +27,11 @@ import dev.sidebike.app.ui.theme.resolveDarkTheme
 
 /**
  * 应用最外层：主题解析（跟随系统/浅色/深色 + 动态取色）+ edge-to-edge 系统栏外观 +
- * VpnService 授权流程 + [SidebikeApp]。
+ * VPN 授权 / 通知权限流程 + [SidebikeApp]。
  *
- * 主题设置来自冻结契约 `SidebikeConfig.app.themeMode/dynamicColor`，用户改动后立即热切换；
- * 主题切换本身由 `MaterialTheme` 重组 + 各组件 MD3 内建颜色动画完成。
+ * - VPN 授权：`VpnService.prepare()` + ActivityResult（失败 → `onStartAborted`）。
+ * - 通知权限（Android 13+）：首次进入非阻塞请求一次；被拒绝时首页显示可重试的提示横幅，
+ *   避免用户永远看不到「VPN 正在运行」前台通知与通知栏的「停止」操作。
  */
 @Composable
 fun SidebikeRoot(viewModel: SidebikeViewModel) {
@@ -50,12 +59,40 @@ fun SidebikeRoot(viewModel: SidebikeViewModel) {
             }
         }
 
+        // Android 13+ 通知权限：非阻塞，首次进入请求一次；被拒绝时首页提供重试入口。
+        var notificationPermissionDenied by rememberSaveable { mutableStateOf(false) }
+        val notificationPermissionLauncher = rememberLauncherForActivityResult(
+            contract = ActivityResultContracts.RequestPermission(),
+        ) { granted ->
+            notificationPermissionDenied = !granted
+        }
+        val notificationsGranted = Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU ||
+            ContextCompat.checkSelfPermission(
+                context,
+                Manifest.permission.POST_NOTIFICATIONS,
+            ) == PackageManager.PERMISSION_GRANTED
+        LaunchedEffect(Unit) {
+            if (!notificationsGranted) {
+                notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+            }
+        }
+        val requestNotificationPermission: () -> Unit = {
+            if (!notificationsGranted) {
+                notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+            }
+        }
+
         // 从系统「安装证书」界面返回时自动重新检测 CA 安装状态。
         LifecycleEventEffect(Lifecycle.Event.ON_RESUME) {
             viewModel.refreshCaInstalled()
         }
 
-        SidebikeApp(viewModel = viewModel, requestStart = requestStart)
+        SidebikeApp(
+            viewModel = viewModel,
+            requestStart = requestStart,
+            notificationsDenied = notificationPermissionDenied && !notificationsGranted,
+            onRequestNotificationPermission = requestNotificationPermission,
+        )
     }
 }
 

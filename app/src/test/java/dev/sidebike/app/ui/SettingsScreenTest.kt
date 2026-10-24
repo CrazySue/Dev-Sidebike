@@ -169,6 +169,18 @@ class SettingsScreenTest : ComposeTestBase() {
     }
 
     @Test
+    fun caStatusSaysMitmDisabledWhenMitmOff() {
+        val config = PreviewData.config.copy(
+            proxy = PreviewData.config.proxy.copy(mitmEnabled = false),
+            mitm = PreviewData.config.mitm.copy(enabled = false),
+        )
+        setSettings(config = config)
+
+        scrollToText("MITM 未启用，无需安装证书")
+        composeRule.onNodeWithText("MITM 未启用，无需安装证书").assertExists()
+    }
+
+    @Test
     fun aboutDialogShowsUpstreamLicense() {
         setSettings()
 

@@ -6,7 +6,9 @@ import dev.sidebike.core.api.SidebikeConfig
 import dev.sidebike.core.api.SidebikeEngine
 import dev.sidebike.core.api.SidebikeEngineFactory
 import dev.sidebike.core.api.SidebikeLogger
-import dev.sidebike.core.api.TrafficStats
+import dev.sidebike.core.dns.DefaultDnsResolver
+import dev.sidebike.core.dns.DnsCodec
+import dev.sidebike.core.dns.DnsType
 import dev.sidebike.core.log.RingBufferSidebikeLogger
 import dev.sidebike.core.proxy.HttpProxyServer
 import dev.sidebike.core.rules.DefaultRuleEngine
@@ -17,11 +19,10 @@ import java.util.concurrent.atomic.AtomicLong
 /**
  * Default [SidebikeEngine] implementation - the only facade the Android app is supposed to use.
  *
- * Wiring:
- *  - config: [SidebikeConfig] (updates are applied atomically to the rule engine and the proxy),
+ * Wiring (all direct constructors, no reflection):
+ *  - config: [SidebikeConfig] (updates are applied atomically to the rule engine, DNS resolver and proxy),
  *  - rules: `DefaultRuleEngine` (backend-dns workstream, task T6),
- *  - DNS: `DefaultDnsResolver` (T6). Until it exists a temporary system-resolver bridge is used
- *    (TODO(integration), see [TemporarySystemDnsResolver]),
+ *  - DNS: `DefaultDnsResolver` (T6) - anti-poisoning UDP/DoT/DoH providers, LRU cache and raw-DNS responder,
  *  - proxy: [HttpProxyServer] (HTTP + CONNECT + MITM),
  *  - logging: the injected logger or a `RingBufferSidebikeLogger` sized from `app.logMaxEntries`,
  *  - statistics: proxy counters + DNS stats aggregated into [EngineStats] on demand.
@@ -38,6 +39,7 @@ class DefaultSidebikeEngine(
     logger: SidebikeLogger? = null,
     private val clock: Clock = Clock.SYSTEM,
     /** Test seam: replace the DNS resolver; production wiring uses the temporary system bridge. */
+    /** Test seam: replace the DNS resolver; production wiring is [DefaultDnsResolver]. */
     dnsResolverFactory: ((SidebikeConfig, SidebikeLogger) -> DnsResolver)? = null,
 ) : SidebikeEngine {
 
@@ -51,9 +53,8 @@ class DefaultSidebikeEngine(
 
     private val ruleEngine = DefaultRuleEngine(initialConfig, log)
 
-    // TODO(integration): replace with `DefaultDnsResolver(initialConfig, log)` when core/dns lands.
     private val dnsResolver: DnsResolver = dnsResolverFactory?.invoke(initialConfig, log)
-        ?: TemporarySystemDnsResolver(initialConfig, log)
+        ?: DefaultDnsResolver(initialConfig, log)
 
     private val proxy = HttpProxyServer(
         dataDir = dataDir,
@@ -90,7 +91,7 @@ class DefaultSidebikeEngine(
             try {
                 ruleEngine.updateConfig(config)
                 proxy.updateConfig(config)
-                (dnsResolver as? TemporarySystemDnsResolver)?.updateConfig(config)
+                (dnsResolver as? DefaultDnsResolver)?.updateConfig(config)
                 proxy.start(config.proxy.port)
                 startedAtMs = clock.currentTimeMillis()
                 startCount.incrementAndGet()
@@ -140,7 +141,7 @@ class DefaultSidebikeEngine(
             .onFailure { log.error(TAG, "rule engine update failed: ${it.message}", it) }
         runCatching { proxy.updateConfig(config) }
             .onFailure { log.error(TAG, "proxy config update failed: ${it.message}", it) }
-        (dnsResolver as? TemporarySystemDnsResolver)?.updateConfig(config)
+        (dnsResolver as? DefaultDnsResolver)?.updateConfig(config)
     }
 
     override fun currentConfig(): SidebikeConfig = config
@@ -197,6 +198,41 @@ class DefaultSidebikeEngine(
     // ------------------------------------------------------------------------------------------------
 
     private fun isMitmEnabled(): Boolean = config.proxy.mitmEnabled || config.mitm.enabled
+
+    /**
+     * DNS readiness self-check used by the app's startup fail-safe (not part of the frozen api):
+     * sends a synthetic A query for [host] through the exact VPN DNS path ([resolveRawDnsQuery]) and reports
+     * whether a valid, non-error reply with at least one answer byte came back within [timeoutMs].
+     *
+     * If this returns false the app must NOT enable the VPN's DNS route (otherwise every DNS lookup on the
+     * device would black-hole); it should surface the error and keep the previous network configuration.
+     *
+     * Hermetic in tests (inject a fake `DnsTransport` through the engine's resolver factory); in production
+     * it performs one real DNS query against the configured providers.
+     */
+    suspend fun selfCheckDns(host: String = "example.com", timeoutMs: Long = 3000): Boolean {
+        return try {
+            val query = DnsCodec.buildQuery(host, DnsType.A, id = 0x5A17)
+            val reply = kotlinx.coroutines.withTimeoutOrNull(timeoutMs.coerceAtLeast(100)) {
+                resolveRawDnsQuery(query)
+            }
+            if (reply == null || reply.size < 12) {
+                log.warn(TAG, "DNS self-check failed for $host: no raw reply within ${timeoutMs}ms")
+                return false
+            }
+            val parsed = DnsCodec.parse(reply)
+            val ok = parsed != null && parsed.isResponse && parsed.rcode == 0 && parsed.answers.isNotEmpty()
+            if (!ok) {
+                log.warn(TAG, "DNS self-check failed for $host: rcode=${parsed?.rcode}, answers=${parsed?.answers?.size}")
+            } else {
+                log.info(TAG, "DNS self-check ok for $host: ${parsed?.ipAnswers()?.take(2)?.joinToString { it.ip } ?: ""}")
+            }
+            ok
+        } catch (e: Exception) {
+            log.warn(TAG, "DNS self-check error for $host: ${e.message}", e)
+            false
+        }
+    }
 
     /** Exposed for hermetic engine tests: number of successful start() transitions. */
     internal fun startCount(): Long = startCount.get()

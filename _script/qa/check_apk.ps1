@@ -110,7 +110,7 @@ if ($manifestXml -and $manifestXml.Trim().Length -gt 0) {
     $null = Expect-Match $manifestXml 'android\.net\.VpnService' "manifest: VpnService intent action"
     $null = Expect-Match $manifestXml 'foregroundServiceType' "manifest: foregroundServiceType present"
     $null = Expect-Match $manifestXml 'SUPPORTS_ALWAYS_ON' "manifest: always-on VPN meta-data"
-    $null = Expect-Match $manifestXml 'network_security_config' "manifest: networkSecurityConfig attribute"
+    $null = Expect-Match $manifestXml 'android:networkSecurityConfig\(0x' "manifest: networkSecurityConfig attribute"
 } else {
     Add-Problem "manifest xmltree dump failed (cannot verify VpnService/FGS declarations)"
 }

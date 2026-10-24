@@ -284,8 +284,6 @@ object DnsCodec {
 
     private fun answerBytesLength(answer: IpAnswer): Int = 12 + if (answer.family == 6) 16 else 4
 
-    private fun answerBytesLength(answer: IpAnswer): Int = 12 + if (answer.family == 6) 16 else 4
-
     // ------------------------------------------------------------------ names
 
     private fun readName(data: ByteArray, start: Int): Pair<String, Int> {

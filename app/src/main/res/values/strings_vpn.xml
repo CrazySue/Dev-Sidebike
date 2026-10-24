@@ -9,6 +9,7 @@
     <string name="vpn_notification_mode_dns_only">仅 DNS 模式（当前 Android 版本不支持系统代理）</string>
     <string name="vpn_always_on_bootstrap">由 always-on VPN 启动</string>
     <string name="vpn_error_engine_stopped">代理/DNS 引擎已停止运行</string>
+    <string name="vpn_error_dns_unavailable">DNS 解析不可用，已取消启动（避免全设备断网）</string>
     <string name="vpn_error_proxy_port_unavailable">本地代理端口不可用</string>
     <string name="vpn_error_no_tun">未能建立 tun（VPN 未授权或已有其他 VPN 连接）</string>
     <string name="vpn_warning_private_dns">检测到系统「私人 DNS」已开启，可能绕过本 VPN 的防污染 DNS；建议在系统设置中关闭私人 DNS 或设为「自动」</string>

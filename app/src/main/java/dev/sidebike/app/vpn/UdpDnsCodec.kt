@@ -8,16 +8,26 @@ package dev.sidebike.app.vpn
  *
  *  - [DnsWire]: a defensive, dependency-free DNS message reader/builder. It understands enough of
  *    RFC 1035 / RFC 6891 to read the header + question section of a client query (including EDNS0
- *    queries, whose OPT pseudo-record lives in the additional section and is simply left opaque),
- *    to produce SERVFAIL/FORMERR and TC-truncated replies, and to repair the transaction ID if the
- *    resolver returns a response with a different one.
+ *    queries, whose OPT pseudo-record lives in the additional section), to clamp the advertised
+ *    EDNS0 UDP payload size, to trim oversize responses to the tun MTU while keeping TC=0, to
+ *    produce SERVFAIL/FORMERR replies, and to repair the transaction ID if the resolver returns a
+ *    response with a different one.
  *  - [DnsTunHandler]: classifies inbound tun packets (cheap, runs on the tun reader thread) and
  *    turns the resolver's wire response into a correct IPv4/UDP reply packet (runs on a worker).
  *
+ * ## Truncation policy (beta has no TCP:53 listener)
+ * The tun only carries IPv4/UDP. If a DNS response does not fit into one MTU there is no TCP
+ * fallback the client could use, so setting `TC=1` would make Android's resolver retry over TCP and
+ * hang. Instead:
+ *  1. the EDNS0 UDP payload size in queries is clamped to [MTU_SAFE_EDNS_UDP_PAYLOAD] before the
+ *     resolver sees it (so a compliant resolver already avoids huge answers), and
+ *  2. if the answer is still too large, [DnsWire.trimResponseToFit] keeps the question plus as many
+ *     whole answer records as fit and drops the rest (TC stays 0; the client gets a valid partial
+ *     answer instead of a hang).
+ *
  * Multi-question queries are explicitly rejected with FORMERR instead of being forwarded: DNS
- * clients never batch questions in practice (RFC 1035 discouraged it, RFC 9619 now forbids it) and
- * the engine contract only promises single-question handling. Crucially the parser must not crash
- * on them — that is covered by unit tests.
+ * clients never batch questions in practice (RFC 9619 now forbids it) and the engine contract only
+ * promises single-question handling. Crucially the parser must not crash on them — covered by tests.
  *
  * Everything here is pure Kotlin/JVM and hermetic: no Android APIs, no external network.
  */
@@ -34,6 +44,12 @@ internal object DnsWire {
     const val RCODE_FORMERR: Int = 1
     const val RCODE_SERVFAIL: Int = 2
 
+    /**
+     * Upper bound advertised to upstream resolvers through the EDNS0 OPT record. 1200 bytes fits
+     * every practical tun MTU (1500 - IPv4/UDP headers) without fragmentation.
+     */
+    const val MTU_SAFE_EDNS_UDP_PAYLOAD: Int = 1200
+
     private const val FLAG_QR = 0x8000
     private const val FLAG_RD = 0x0100
     private const val FLAG_RA = 0x0080
@@ -46,7 +62,7 @@ internal object DnsWire {
     private const val MAX_QUESTIONS = 64
 
     /** EDNS0 UDP payload size we advertise in generated responses (common safe default). */
-    private const val EDNS0_UDP_SIZE = 1232
+    private const val EDNS0_UDP_SIZE = MTU_SAFE_EDNS_UDP_PAYLOAD
 
     /** Parsed DNS question (name is decoded to a printable dotted string; used for logging only). */
     data class Question(val name: String, val qtype: Int, val qclass: Int)
@@ -55,7 +71,7 @@ internal object DnsWire {
      * Parsed DNS message header + question section.
      *
      * [questionSectionEnd] is the offset just past the last question (i.e. where the answer section
-     * starts), computed relative to a query that uses no name compression in its question names.
+     * starts), computed relative to a message whose question names are uncompressed.
      */
     data class MessageInfo(
         val id: Int,
@@ -72,12 +88,10 @@ internal object DnsWire {
         val isStandardQuery: Boolean
             get() = !isResponse && questionCount == 1 &&
                 (flags and 0x7800) == 0 // opcode QUERY
-
-        val transactionId: Int get() = id
     }
 
     /**
-     * Parses a DNS message enough to inspect a client query.
+     * Parses a DNS message enough to inspect a query/response.
      *
      * Never throws: returns `null` when the buffer is truncated, the header/question sections are
      * malformed, or the question count is implausible. Name-compression pointers are followed with
@@ -118,6 +132,96 @@ internal object DnsWire {
             isResponse = flags and FLAG_QR != 0,
             hasEdns0 = additionalCount > 0,
         )
+    }
+
+    /**
+     * Clamps the EDNS0 OPT record's advertised UDP payload size in a query to [maxUdpPayload]
+     * (never below 512, per RFC 6891). Returns the original array when the query has no OPT record
+     * or no clamping is needed; otherwise returns a patched copy.
+     *
+     * This is the first line of defense against oversized answers: the engine's resolver sees the
+     * clamped value and asks upstream servers for smaller responses.
+     */
+    fun clampEdnsUdpPayload(query: ByteArray, maxUdpPayload: Int = MTU_SAFE_EDNS_UDP_PAYLOAD): ByteArray {
+        if (maxUdpPayload <= 512) return query
+        val info = inspect(query) ?: return query
+        if (!info.hasEdns0) return query
+
+        var offset = info.questionSectionEnd
+        val limit = query.size
+        // Skip answers + authority, then walk the additional section looking for OPT (type 41).
+        repeat(info.answerCount + info.authorityCount) {
+            offset = skipRecord(query, offset, limit) ?: return query
+        }
+        repeat(info.additionalCount) {
+            val nameResult = readName(query, offset, limit) ?: return query
+            val typeOffset = nameResult.endOffset
+            val end = recordEnd(query, typeOffset, limit) ?: return query
+            if (u16(query, typeOffset) == QTYPE_OPT) {
+                val advertised = u16(query, typeOffset + 2) // CLASS field of OPT == UDP payload size
+                val clamped = advertised.coerceIn(512, maxUdpPayload)
+                if (clamped == advertised) return query
+                val patched = query.copyOf()
+                writeU16(patched, typeOffset + 2, clamped)
+                return patched
+            }
+            offset = end
+        }
+        return query
+    }
+
+    /**
+     * Trims an oversize DNS [response] so that it fits [maxPayload] bytes without ever setting TC.
+     *
+     * Keeps the original header flags (TC cleared), the question section and as many complete answer
+     * records as fit, drops authority records, and re-adds a minimal empty EDNS0 OPT record when the
+     * client query had one (RFC 6891 §6.1.2). Compression pointers inside the kept prefix remain
+     * valid because they only point backwards. Returns `null` when even the question section cannot
+     * be preserved.
+     */
+    fun trimResponseToFit(query: ByteArray, response: ByteArray, maxPayload: Int): ByteArray? {
+        val info = inspect(response) ?: return null
+        val questionEnd = info.questionSectionEnd
+        val queryInfo = inspect(query)
+        val needsOpt = queryInfo?.hasEdns0 == true
+        val optSize = if (needsOpt) EMPTY_OPT_RECORD.size else 0
+        if (questionEnd + optSize > maxPayload) return null
+
+        var offset = questionEnd
+        val answerEnds = ArrayList<Int>(info.answerCount)
+        repeat(info.answerCount) {
+            val end = skipRecord(response, offset, response.size) ?: return@repeat
+            answerEnds += end
+            offset = end
+        }
+
+        var keptAnswers = 0
+        for ((index, end) in answerEnds.withIndex()) {
+            if (end + optSize > maxPayload) break
+            keptAnswers = index + 1
+        }
+        val cut = if (keptAnswers > 0) answerEnds[keptAnswers - 1] else questionEnd
+        if (cut + optSize > maxPayload) return null
+
+        val trimmed = ByteArray(cut + optSize)
+        System.arraycopy(response, 0, trimmed, 0, cut)
+        writeU16(trimmed, 4, info.questionCount)
+        writeU16(trimmed, 6, keptAnswers)
+        writeU16(trimmed, 8, 0)
+        writeU16(trimmed, 10, if (needsOpt) 1 else 0)
+        // Preserve QR/opcode/RD/RA/RCODE, force TC=0: the client must not retry over TCP.
+        writeU16(trimmed, 2, u16(trimmed, 2) and FLAG_TC.inv())
+        if (needsOpt) System.arraycopy(EMPTY_OPT_RECORD, 0, trimmed, cut, optSize)
+        return trimmed
+    }
+
+    /** Returns a copy of [message] with TC cleared when needed (defensive: beta has no TCP path). */
+    fun clearTruncationFlag(message: ByteArray): ByteArray {
+        if (message.size < HEADER_SIZE) return message
+        if (u16(message, 2) and FLAG_TC == 0) return message
+        val copy = message.copyOf()
+        writeU16(copy, 2, u16(copy, 2) and FLAG_TC.inv())
+        return copy
     }
 
     /**
@@ -168,7 +272,7 @@ internal object DnsWire {
         return patched
     }
 
-    /** Reads a (possibly compression-pointer-based) DNS name. Returns the name and the offset just past it. */
+    /** Reads a (possibly compression-pointer-based) DNS name. Returns the name and offset past it. */
     private data class NameResult(val name: String, val endOffset: Int)
 
     private fun readName(buffer: ByteArray, start: Int, limit: Int): NameResult? {
@@ -206,6 +310,20 @@ internal object DnsWire {
                 }
             }
         }
+    }
+
+    /** Skips a complete resource record starting at [start]; returns the offset just past it. */
+    private fun skipRecord(buffer: ByteArray, start: Int, limit: Int): Int? {
+        val name = readName(buffer, start, limit) ?: return null
+        return recordEnd(buffer, name.endOffset, limit)
+    }
+
+    /** Given the offset of a record's TYPE field, returns the offset just past its RDATA. */
+    private fun recordEnd(buffer: ByteArray, typeOffset: Int, limit: Int): Int? {
+        if (typeOffset + 10 > limit) return null
+        val rdLength = u16(buffer, typeOffset + 8)
+        val end = typeOffset + 10 + rdLength
+        return if (end <= limit) end else null
     }
 
     /** Empty EDNS0 OPT pseudo-record: root name, type 41, class = UDP payload size, TTL 0, RDLEN 0. */
@@ -254,7 +372,7 @@ internal class DnsTunHandler(
         /** Address the query was sent to; the reply appears to come from it. */
         val serverAddress: ByteArray,
         val serverPort: Int,
-        /** Wire-format DNS query bytes exactly as received (without IP/UDP headers). */
+        /** Wire-format DNS query bytes as they should be handed to the resolver (EDNS0 clamped). */
         val dnsQuery: ByteArray,
         val questionName: String,
         val questionType: Int,
@@ -274,6 +392,10 @@ internal class DnsTunHandler(
     /**
      * Classifies one inbound tun packet. Returns [Classified.Ignored] for anything that is not a
      * well-formed IPv4/UDP DNS query addressed to [vpnDnsAddress]:53, and never throws.
+     *
+     * The EDNS0 advertised UDP payload size of the query is clamped to
+     * [DnsWire.MTU_SAFE_EDNS_UDP_PAYLOAD] so the resolver asks upstream servers for answers that fit
+     * the tun MTU.
      */
     fun classify(packet: ByteArray, length: Int = packet.size): Classified {
         val ip = IpPacket.parseIpv4(packet, 0, length)
@@ -287,12 +409,13 @@ internal class DnsTunHandler(
         val info = DnsWire.inspect(udp.payload) ?: return Classified.Ignored("malformed-dns")
         if (info.isResponse) return Classified.Ignored("dns-response-not-query")
 
+        val engineQuery = DnsWire.clampEdnsUdpPayload(udp.payload)
         val request = DnsRequest(
             clientAddress = ip.sourceAddress,
             clientPort = udp.sourcePort,
             serverAddress = ip.destinationAddress,
             serverPort = udp.destinationPort,
-            dnsQuery = udp.payload,
+            dnsQuery = engineQuery,
             questionName = info.questions.firstOrNull()?.name ?: "",
             questionType = info.questions.firstOrNull()?.qtype ?: 0,
             forcedRcode = when {
@@ -306,6 +429,9 @@ internal class DnsTunHandler(
 
     /**
      * Builds the IPv4/UDP reply for [request].
+     *
+     * Never produces a `TC=1` reply: the tun has no TCP:53 path, so an oversize answer is trimmed to
+     * whole answer records that fit the MTU (see [DnsWire.trimResponseToFit]).
      *
      * @param resolverResponse wire-format DNS answer from the engine, or `null` on failure/timeout.
      * @return a complete IPv4 packet ready to be written back to the tun; `null` when no reply can
@@ -323,21 +449,23 @@ internal class DnsTunHandler(
                     ?: return null
         }
 
-        val boundedReply = if (dnsReply.size > maxDnsPayload) {
-            // Cannot fragment locally; tell the client the answer is truncated (TC=1) so it can
-            // fail over / retry over TCP instead of hanging on a silently dropped response.
-            DnsWire.buildReply(request.dnsQuery, DnsWire.RCODE_NO_ERROR, truncated = true) ?: return null
-        } else {
+        val fittedReply = if (dnsReply.size <= maxDnsPayload) {
             dnsReply
+        } else {
+            // Oversize: trim whole answer records to fit the MTU. TC must stay 0 (no TCP path).
+            DnsWire.trimResponseToFit(request.dnsQuery, dnsReply, maxDnsPayload)
+                ?: DnsWire.buildReply(request.dnsQuery, DnsWire.RCODE_SERVFAIL)
+                ?: return null
         }
-        if (boundedReply.size < DnsWire.HEADER_SIZE) return null
+        val finalReply = DnsWire.clearTruncationFlag(fittedReply)
+        if (finalReply.size < DnsWire.HEADER_SIZE || finalReply.size > maxDnsPayload) return null
 
         return IpPacket.buildUdpIpv4(
             sourceAddress = request.serverAddress,
             sourcePort = request.serverPort,
             destinationAddress = request.clientAddress,
             destinationPort = request.clientPort,
-            payload = boundedReply,
+            payload = finalReply,
         )
     }
 

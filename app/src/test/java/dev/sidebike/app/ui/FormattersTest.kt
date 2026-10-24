@@ -17,6 +17,13 @@ class FormattersTest {
     }
 
     @Test
+    fun `bytes fall back to dash when traffic unknown`() {
+        assertEquals("—", UiFormat.bytesOrDash(0, hasConnections = true))
+        assertEquals("0 B", UiFormat.bytesOrDash(0, hasConnections = false))
+        assertEquals("1.0 KB", UiFormat.bytesOrDash(1024, hasConnections = true))
+    }
+
+    @Test
     fun `count uses grouping`() {
         assertEquals("0", UiFormat.count(0))
         assertEquals("1,234", UiFormat.count(1234))

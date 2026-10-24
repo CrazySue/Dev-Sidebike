@@ -6,6 +6,10 @@ import dev.sidebike.app.R
 import dev.sidebike.app.state.RunStatus
 import dev.sidebike.app.ui.components.RunControlPhase
 import dev.sidebike.app.ui.components.StatusVisuals
+import dev.sidebike.app.ui.components.MitmCaStatus
+import dev.sidebike.app.ui.components.mitmCaHomeLabelRes
+import dev.sidebike.app.ui.components.mitmCaSettingsLabelRes
+import dev.sidebike.app.ui.components.mitmCaStatusOf
 import dev.sidebike.app.ui.components.runControlPhaseOf
 import dev.sidebike.app.ui.screens.CaStatus
 import dev.sidebike.app.ui.screens.caStatusOf
@@ -68,6 +72,26 @@ class StatusMappingTest {
         assertEquals(CaStatus.NOT_INSTALLED, caStatusOf(caInstalled = false, mitmEnabled = true))
         assertEquals(CaStatus.NOT_GENERATED, caStatusOf(caInstalled = false, mitmEnabled = false))
         assertNotEquals(CaStatus.INSTALLED, caStatusOf(caInstalled = false, mitmEnabled = false))
+    }
+
+    @Test
+    fun mitmCaStatusMappingIsStateAware() {
+        assertEquals(MitmCaStatus.MITM_DISABLED, mitmCaStatusOf(mitmEnabled = false, caInstalled = false))
+        assertEquals(MitmCaStatus.MITM_DISABLED, mitmCaStatusOf(mitmEnabled = false, caInstalled = true))
+        assertEquals(MitmCaStatus.NEED_CA, mitmCaStatusOf(mitmEnabled = true, caInstalled = false))
+        assertEquals(MitmCaStatus.READY, mitmCaStatusOf(mitmEnabled = true, caInstalled = true))
+    }
+
+    @Test
+    fun mitmCaCopiesAreChineseAndDistinct() {
+        MitmCaStatus.entries.forEach { status ->
+            val home = context.getString(mitmCaHomeLabelRes(status))
+            val settings = context.getString(mitmCaSettingsLabelRes(status))
+            assertTrue("$status home copy 应为中文: $home", home.any { it.code in 0x4E00..0x9FFF })
+            assertTrue("$status settings copy 应为中文: $settings", settings.any { it.code in 0x4E00..0x9FFF })
+        }
+        val homeCopies = MitmCaStatus.entries.map { context.getString(mitmCaHomeLabelRes(it)) }
+        assertEquals(homeCopies.size, homeCopies.toSet().size)
     }
 
     @Test

@@ -15,6 +15,7 @@ import android.provider.Settings
 import android.util.Log
 import androidx.core.app.NotificationCompat
 import androidx.core.content.ContextCompat
+import dev.sidebike.app.BuildConfig
 import dev.sidebike.app.MainActivity
 import dev.sidebike.app.R
 import dev.sidebike.app.data.SidebikeConfigStore
@@ -123,6 +124,9 @@ class SidebikeVpnService : VpnService() {
             teardown(publish = VpnPhase.Stopped, reason = "notification-action")
             return START_NOT_STICKY
         }
+        if (intent?.action == ACTION_DEBUG_FAULT) {
+            return handleDebugFault(intent, startId)
+        }
         if (intent?.action != null && intent.action != ACTION_START) {
             log(LogLevel.WARN, "忽略未知 action: ${intent.action}")
             ensureForeground(startId)
@@ -174,6 +178,40 @@ class SidebikeVpnService : VpnService() {
         return true
     }
 
+    /**
+     * Debug-only fault injection for QA (never compiled into release behaviour: the whole branch is
+     * gated on [BuildConfig.DEBUG]). Triggered from adb, e.g.:
+     * ```
+     * adb shell am start-foreground-service -n dev.sidebike.app.debug/dev.sidebike.app.vpn.SidebikeVpnService \
+     *     -a dev.sidebike.app.action.VPN_DEBUG_FAULT --es fault kill-engine
+     * ```
+     * Supported faults: `kill-engine`, `kill-proxy`, `tun-failure`, `revoke`.
+     */
+    private fun handleDebugFault(intent: Intent, startId: Int): Int {
+        if (!BuildConfig.DEBUG) {
+            log(LogLevel.WARN, "故障注入仅 debug 构建可用")
+            return START_NOT_STICKY
+        }
+        if (!ensureForeground(startId)) return START_NOT_STICKY
+        val fault = intent.getStringExtra(EXTRA_FAULT) ?: "unknown"
+        log(LogLevel.WARN, "QA 故障注入: $fault")
+        when (fault) {
+            FAULT_KILL_ENGINE -> {
+                engine?.stop()
+                SidebikeRuntime.engineOrNull()?.stop()
+                failRuntime("QA 注入故障：引擎已停止")
+            }
+            FAULT_KILL_PROXY -> {
+                SidebikeRuntime.engineOrNull()?.stop()
+                failRuntime("QA 注入故障：本地代理已停止")
+            }
+            FAULT_TUN_FAILURE -> failRuntime("QA 注入故障：tun 读取失败")
+            FAULT_REVOKE -> onRevoke()
+            else -> log(LogLevel.WARN, "未知故障类型: $fault")
+        }
+        return START_NOT_STICKY
+    }
+
     // ---------------------------------------------------------------- startup
 
     private suspend fun establishVpn(configStore: SidebikeConfigStore) {
@@ -192,6 +230,12 @@ class SidebikeVpnService : VpnService() {
             engine = activeEngine
             if (!activeEngine.isRunning) {
                 throw IllegalStateException("引擎未进入运行状态")
+            }
+
+            // DNS readiness probe: if the engine cannot resolve, establishing the tun would route
+            // every app's DNS into a black hole. Abort before touching the network.
+            if (!DnsProbe.probe(activeEngine, DNS_PROBE_TIMEOUT_MS)) {
+                throw IllegalStateException(getString(R.string.vpn_error_dns_unavailable))
             }
 
             val addresses = resolveAddresses(loadedConfig)
@@ -651,6 +695,19 @@ class SidebikeVpnService : VpnService() {
 
         /** Stops the VPN (notification action / QuickSettings tile). */
         const val ACTION_STOP = "dev.sidebike.app.action.VPN_STOP"
+
+        /** Debug-only QA fault injection action (honoured only in [BuildConfig.DEBUG] builds). */
+        const val ACTION_DEBUG_FAULT = "dev.sidebike.app.action.VPN_DEBUG_FAULT"
+
+        /** Extra for [ACTION_DEBUG_FAULT]: `kill-engine` | `kill-proxy` | `tun-failure` | `revoke`. */
+        const val EXTRA_FAULT = "fault"
+
+        const val FAULT_KILL_ENGINE = "kill-engine"
+        const val FAULT_KILL_PROXY = "kill-proxy"
+        const val FAULT_TUN_FAILURE = "tun-failure"
+        const val FAULT_REVOKE = "revoke"
+
+        private const val DNS_PROBE_TIMEOUT_MS = 3_000L
 
         private const val CHANNEL_ID = "sidebike_vpn_status"
         private const val NOTIFICATION_ID = 0x5DB1

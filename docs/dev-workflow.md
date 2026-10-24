@@ -34,6 +34,13 @@ powershell -NoProfile -File E:\WorkSpace\Dev-Sidebike\_script\pipeline.ps1 test
 
 首次全量构建依赖下载可能耗时数分钟，属正常。**遇到依赖下载失败 → 重试或用镜像，不要改版本降级。**
 
+### 构建锁故障排查（跨 agent 并发）
+- 现象：构建长时间停在 `[gradle] 等待其他 agent 的构建完成（全局构建锁）...`。
+  1. 等待 5 分钟仍未获得锁 → 重试一次（`gradle.ps1` 已处理被放弃的 mutex：上一个持有者被 kill 时会自动接管）。
+  2. 若仍卡住，检查是否有卡死的测试进程（`java ... GradleMain ... :app:testDebugUnitTest` 运行 >10 分钟即视为卡死），向 Lead 报告 PID，不要自行 kill 其他 agent 的进程。
+- 现象：`AbandonedMutexException` → 已由 wrapper 捕获接管，属正常恢复路径，无需处理。
+- 所有 Gradle Test 任务已有 10 分钟超时保护（防止死锁测试卡住整条流水线）；UI/Robolectric 测试若需连续动画，必须在测试中关闭无限动画或使用 `mainClock.autoAdvance=false`。
+
 ## 2. 文件所有权（写作用域）
 
 | 角色 | 可写路径 |

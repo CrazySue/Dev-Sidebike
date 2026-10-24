@@ -70,6 +70,30 @@
     <string name="home_warn_system_proxy">系统 HTTP 代理未生效：不遵循系统代理的应用只能获得 DNS 级加速。</string>
     <string name="home_warn_port_fallback">端口 %1$d 被占用，本地代理已回退到端口 %2$d。</string>
     <string name="home_warn_title">环境提示</string>
+    <string name="home_warn_notifications">通知权限未授予：VPN 前台通知与「停止」操作将不可见。</string>
+    <string name="action_allow_notifications">允许通知</string>
+
+    <!-- Hero headline / capability line -->
+    <string name="home_headline_idle">尚未启动</string>
+    <string name="home_headline_preparing">正在申请 VPN 权限</string>
+    <string name="home_headline_starting">正在启动代理引擎</string>
+    <string name="home_headline_running">已连接</string>
+    <string name="home_headline_stopping">正在停止服务</string>
+    <string name="home_headline_error">启动失败</string>
+    <string name="home_cap_dns_active">DNS 防污染已生效</string>
+    <string name="home_cap_dns_inactive">DNS 未接管</string>
+    <string name="home_cap_proxy_registered">系统代理已注册</string>
+    <string name="home_cap_proxy_not_registered">系统代理未生效</string>
+    <string name="home_cap_proxy_unknown">系统代理状态未知</string>
+    <string name="home_cap_mitm_on">MITM 已开启</string>
+    <string name="home_cap_mitm_off">MITM 已关闭</string>
+
+    <!-- CA / MITM state-aware copy -->
+    <string name="home_mitm_disabled">MITM 未启用（可选增强）</string>
+    <string name="home_mitm_need_ca">需要安装 CA 证书</string>
+    <string name="home_mitm_ready">CA 证书已就绪</string>
+    <string name="settings_ca_mitm_off">MITM 未启用，无需安装证书</string>
+    <string name="settings_ca_need_install">需要安装 CA 证书</string>
 
     <!-- ============================ Statistics ============================ -->
     <string name="stats_total_conn">连接总数</string>
@@ -88,7 +112,8 @@
     <string name="rules_clear_search">清除搜索</string>
     <string name="rules_summary">共 %1$d 个域名 · %2$d 条路径规则 · %3$d 个直连放行</string>
     <string name="rules_empty_title">暂无拦截规则</string>
-    <string name="rules_empty_desc">配置中的 intercepts 规则会显示在这里，可搜索、逐条启停并查看动作详情。</string>
+    <string name="rules_empty_desc">配置中的 intercepts 规则会显示在这里。刚启动应用时配置可能仍在加载，可点击下方按钮重新加载。</string>
+    <string name="rules_reload_config">重新加载配置</string>
     <string name="rules_no_result_title">没有匹配的规则</string>
     <string name="rules_no_result_desc">换个关键词试试，或清除搜索条件。</string>
     <string name="rules_feature_proxy">启用代理规则</string>

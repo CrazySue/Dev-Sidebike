@@ -25,7 +25,13 @@ class HomeScreenTest : ComposeTestBase() {
     private var lastMitmToggle: Boolean? = null
     private var refreshCaCalls = 0
 
-    private fun setHome(state: SidebikeUiState, recentLogs: List<dev.sidebike.core.api.LogEntry> = emptyList()) {
+    private var notificationRequests = 0
+
+    private fun setHome(
+        state: SidebikeUiState,
+        recentLogs: List<dev.sidebike.core.api.LogEntry> = emptyList(),
+        notificationsDenied: Boolean = false,
+    ) {
         setScreen {
             HomeScreen(
                 state = state,
@@ -38,6 +44,8 @@ class HomeScreenTest : ComposeTestBase() {
                 onOpenCertGuide = {},
                 onToggleMitm = { lastMitmToggle = it },
                 onRefreshCa = { refreshCaCalls++ },
+                notificationsDenied = notificationsDenied,
+                onRequestNotificationPermission = { notificationRequests++ },
             )
         }
     }
@@ -51,6 +59,7 @@ class HomeScreenTest : ComposeTestBase() {
         setHome(PreviewData.emptyState)
 
         composeRule.onAllNodesWithText("未运行").onFirst().assertExists()
+        composeRule.onNodeWithText("尚未启动").assertExists()
         composeRule.onNodeWithText("启动服务").assertExists()
         composeRule.onNodeWithText("实时数据").assertExists()
         composeRule.onNodeWithText("连接总数").assertExists()
@@ -71,10 +80,12 @@ class HomeScreenTest : ComposeTestBase() {
 
         composeRule.onNodeWithText("停止服务").assertExists()
         composeRule.onAllNodesWithText("运行中").onFirst().assertExists()
-        composeRule.onNodeWithText("已运行 1:02:04").assertExists()
+        // Hero 信息层级：headline 带运行时长；subtitle 为真实能力行
+        composeRule.onNodeWithText("已连接 · 1:02:04").assertExists()
+        composeRule.onNodeWithText("DNS 防污染已生效 · 系统代理已注册 · MITM 已开启").assertExists()
         composeRule.onNodeWithText("VPN 已连接").assertExists()
         composeRule.onNodeWithText("代理 :31181").assertExists()
-        composeRule.onNodeWithText("MITM 已开启").assertExists()
+        composeRule.onAllNodesWithText("MITM 已开启").onFirst().assertExists()
 
         // 统计数字：动画结束后显示目标值
         composeRule.onNodeWithText("128").assertExists()
@@ -83,6 +94,16 @@ class HomeScreenTest : ComposeTestBase() {
         composeRule.onNodeWithText("9.4 MB").assertExists()
         composeRule.onNodeWithText("4,821").assertExists()
         composeRule.onNodeWithText("23 ms").assertExists()
+    }
+
+    @Test
+    fun byteCountersFallBackToDashWhenTrafficUnknown() {
+        val state = PreviewData.state().let {
+            it.copy(stats = it.stats.copy(totalConnections = 130, bytesUp = 0, bytesDown = 0))
+        }
+        setHome(state)
+
+        composeRule.onAllNodesWithText("—").onFirst().assertExists()
     }
 
     @Test
@@ -130,11 +151,44 @@ class HomeScreenTest : ComposeTestBase() {
     }
 
     @Test
-    fun missingCaRowOpensCertGuide() {
+    fun caCopyIsStateAwareWhenMitmEnabledButCaMissing() {
         setHome(PreviewData.state(caInstalled = false))
 
-        scrollHomeTo(hasText("未安装，点击查看安装指南"))
-        composeRule.onAllNodesWithText("未安装，点击查看安装指南").onFirst().assertExists()
+        // MITM 已开启 + CA 未安装 → 需要安装证书（不再出现「请先启动服务」这类矛盾文案）
+        scrollHomeTo(hasText("需要安装 CA 证书"))
+        composeRule.onAllNodesWithText("需要安装 CA 证书").onFirst().assertExists()
+        composeRule.onNodeWithText("尚未生成，请先开启 MITM 并启动服务").assertDoesNotExist()
+    }
+
+    @Test
+    fun caCopyIsStateAwareWhenMitmDisabled() {
+        val config = PreviewData.config.copy(
+            proxy = PreviewData.config.proxy.copy(mitmEnabled = false),
+            mitm = PreviewData.config.mitm.copy(enabled = false),
+        )
+        setHome(PreviewData.state(config = config))
+
+        scrollHomeTo(hasText("MITM 未启用（可选增强）"))
+        composeRule.onAllNodesWithText("MITM 未启用（可选增强）").onFirst().assertExists()
+        composeRule.onNodeWithText("需要安装 CA 证书").assertDoesNotExist()
+    }
+
+    @Test
+    fun caCopyIsStateAwareWhenReady() {
+        setHome(PreviewData.state(caInstalled = true))
+
+        scrollHomeTo(hasText("CA 证书已就绪"))
+        composeRule.onAllNodesWithText("CA 证书已就绪").onFirst().assertExists()
+    }
+
+    @Test
+    fun notificationDeniedShowsBannerAndRetriesPermission() {
+        setHome(PreviewData.state(), notificationsDenied = true)
+
+        scrollHomeTo(hasText("通知权限未授予", substring = true))
+        composeRule.onNodeWithText("通知权限未授予", substring = true).assertExists()
+        composeRule.onNodeWithText("允许通知").performClick()
+        assertEquals(1, notificationRequests)
     }
 
     @Test

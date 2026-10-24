@@ -100,6 +100,23 @@ $null = Exists '_script\qa\audit_md3.ps1' 'Q1' 'MD3 静态审计脚本存在'
 $null = Exists '_script\qa\check_apk.ps1' 'Q2' 'APK 校验脚本存在'
 $null = Exists '_script\qa\check_requirements.ps1' 'Q3' '仓库需求审计脚本存在'
 $null = Exists '_script\qa\device_verify.md' 'Q4' '真机验证清单存在' $true
+$null = Exists '_script\qa\setup_emulator.ps1' 'Q5' '离线模拟器安装脚本存在' $true
+$null = Exists '_script\qa\run_qa_tests.ps1' 'Q6' 'QA 总门禁脚本存在' $true
+
+# ---------- 5b. QA 截图验收集（真 PNG） ----------
+$shotDir = Join-Path $Root 'docs\qa\screenshots'
+if (Test-Path $shotDir) {
+    $pngs = @(Get-ChildItem $shotDir -Filter '*.png' -ErrorAction SilentlyContinue)
+    if ($pngs.Count -ge 8) { $null = Check 'Q7' "QA 截图 >= 8 张（实际 $($pngs.Count)）" $true }
+    else { $null = Wip 'Q7' "QA 截图 >= 8 张（实际 $($pngs.Count)）" }
+    $badPng = 0
+    foreach ($png in $pngs) {
+        $bytes = [System.IO.File]::ReadAllBytes($png.FullName)
+        if ($bytes.Length -lt 8 -or $bytes[0] -ne 0x89 -or $bytes[1] -ne 0x50 -or $bytes[2] -ne 0x4E -or $bytes[3] -ne 0x47) { $badPng++ }
+    }
+    if ($pngs.Count -gt 0 -and $badPng -eq 0) { $null = Check 'Q8' "所有 QA 截图均为合法 PNG（$($pngs.Count)）" $true }
+    elseif ($pngs.Count -gt 0) { $null = Fail 'Q8' '存在非法 PNG 截图' "$badPng 个文件损坏" }
+}
 
 # ---------- 6. Git 基线（只读检查，不提交） ----------
 $gitDir = Join-Path $Root '.git'

@@ -1,5 +1,6 @@
 package dev.sidebike.app.ui
 
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.test.hasClickAction
 import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.hasText
@@ -9,6 +10,7 @@ import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollToNode
 import androidx.test.core.app.ApplicationProvider
 import dev.sidebike.app.state.RunStatus
+import dev.sidebike.app.ui.motion.LocalInfiniteAnimationsEnabled
 import dev.sidebike.app.ui.preview.PreviewData
 import dev.sidebike.app.ui.theme.SidebikeTheme
 import org.junit.Assert.assertEquals
@@ -35,13 +37,14 @@ class NavigationTest : ComposeTestBase() {
     }
 
     private fun setApp() {
-        composeRule.mainClock.autoAdvance = false
         composeRule.setContent {
-            SidebikeTheme(dynamicColor = false) {
-                SidebikeApp(viewModel = viewModel)
+            CompositionLocalProvider(LocalInfiniteAnimationsEnabled provides false) {
+                SidebikeTheme(dynamicColor = false) {
+                    SidebikeApp(viewModel = viewModel)
+                }
             }
         }
-        composeRule.mainClock.advanceTimeBy(1_500)
+        composeRule.waitForIdle()
     }
 
     private fun clickNav(label: String) {

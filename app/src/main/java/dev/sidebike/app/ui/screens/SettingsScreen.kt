@@ -56,6 +56,8 @@ import dev.sidebike.app.BuildConfig
 import dev.sidebike.app.R
 import dev.sidebike.app.ui.components.SectionHeader
 import dev.sidebike.app.ui.components.StatusPill
+import dev.sidebike.app.ui.components.mitmCaSettingsLabelRes
+import dev.sidebike.app.ui.components.mitmCaStatusOf
 import dev.sidebike.app.ui.motion.M3Motion
 import dev.sidebike.app.ui.theme.ThemeMode
 import dev.sidebike.core.api.DnsMode
@@ -239,11 +241,9 @@ fun SettingsScreen(
                     supportingContent = {
                         Text(
                             text = stringResource(
-                                when {
-                                    caInstalled -> R.string.settings_ca_installed
-                                    mitmEnabled -> R.string.settings_ca_not_installed
-                                    else -> R.string.settings_ca_not_generated
-                                },
+                                mitmCaSettingsLabelRes(
+                                    mitmCaStatusOf(mitmEnabled = mitmEnabled, caInstalled = caInstalled),
+                                ),
                             ),
                         )
                     },

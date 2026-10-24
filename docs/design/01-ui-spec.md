@@ -76,7 +76,23 @@ MD3 NavigationBar 推荐 3–5 个 destination，本应用正好 5 个（全部�
 | ERROR | 启动失败 | ErrorOutline | `errorContainer` | `onErrorContainer` | `error` |
 
 - 启动/停止控件相位：`IDLE/ERROR → START`、`PREPARING/STARTING → STARTING`、`RUNNING → STOP`、`STOPPING → STOPPING`。
-- 环境提示（Home）：Private DNS（tertiaryContainer）、Lockdown（errorContainer）、系统代理未生效（tertiaryContainer）、端口回退（tertiaryContainer）。
+- 环境提示（Home）：Private DNS（tertiaryContainer）、Lockdown（errorContainer）、系统代理未生效（tertiaryContainer）、通知权限被拒绝（tertiaryContainer + 允许通知重试）、端口回退（tertiaryContainer）。
+
+### 4.1 Home Hero 信息层级（避免状态文案重复）
+
+| 位置 | 内容 | 说明 |
+| --- | --- | --- |
+| Status chip | 唯一状态标签（未运行/正在准备 VPN/…/启动失败） | MD3 tonal pill + 运行中呼吸点 |
+| Headline | `尚未启动` / `正在启动代理引擎` / `已连接 · 01:02:04` / `启动失败` | 信息密度更高，不与 chip 重复 |
+| Subtitle（RUNNING） | 能力行：`DNS 防污染已生效 · 系统代理已注册 · MITM 已关闭` | 由 `vpnActive / systemProxyRegistered / mitmEnabled` 实时组合 |
+| Subtitle（其他） | `statusMessage` 或状态说明 | 错误时展示 lastError 横幅 |
+| Chips | `VPN 已连接`、`代理 :端口`、`MITM 已开启/关闭` | 端口在回退时显示 `effectiveProxyPort` |
+| CA/MITM 文案 | 三态：`MITM 未启用（可选增强）` / `需要安装 CA 证书` / `CA 证书已就绪` | 由 `mitmCaStatusOf()` 决定，运行中绝不提示「请先启动服务」 |
+
+- 字节统计：`UiFormat.bytesOrDash()` —— 有连接但字节为 0 时显示 `—`（未知），避免误报 `0 B`。
+- 统计数字统一用 `AnimatedCounterText`（Long 滚动动画）。
+- 通知权限（Android 13+）：`SidebikeRoot` 首次进入非阻塞请求；被拒绝时 Home 显示「通知权限未授予」横幅 + 「允许通知」重试按钮（VPN 前台通知/停止操作依赖该权限）。
+
 
 ## 5. 关键实现约定
 
@@ -123,10 +139,11 @@ MD3 NavigationBar 推荐 3–5 个 destination，本应用正好 5 个（全部�
 
 - 每个列表都有 MD3 `EmptyState`（图标 + 标题 + 说明）：
   - Home 最近日志：暂无日志（服务运行后显示）
-  - Rules：暂无拦截规则 / 没有匹配的规则（搜索）
+  - Rules：暂无拦截规则（空配置时附「重新加载配置」动作 → `controller.reloadConfig()`） / 没有匹配的规则（搜索）
   - Logs：暂无日志 / 当前筛选条件下没有日志
   - Settings：无列表，纯配置项
   - CertGuide：无列表，纯步骤
+- 空配置说明文案明确提示「刚启动应用时配置可能仍在加载」，避免把加载态误判为故障。
 - `PlaceholderSidebikeController` 提供的默认状态（IDLE + 空配置）可直接渲染，无崩溃路径。
 - 所有 Preview/测试使用 `ui/preview/PreviewData.kt`，不访问网络。
 

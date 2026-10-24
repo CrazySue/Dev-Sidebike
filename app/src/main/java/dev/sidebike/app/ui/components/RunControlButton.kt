@@ -23,6 +23,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import dev.sidebike.app.R
 import dev.sidebike.app.state.RunStatus
+import dev.sidebike.app.ui.motion.LocalInfiniteAnimationsEnabled
 import dev.sidebike.app.ui.motion.M3Motion
 import dev.sidebike.app.ui.motion.m3FadeThroughResize
 
@@ -116,11 +117,21 @@ fun RunControlButton(
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     if (targetPhase == RunControlPhase.STARTING || targetPhase == RunControlPhase.STOPPING) {
-                        CircularProgressIndicator(
-                            modifier = Modifier.size(18.dp),
-                            color = LocalContentColor.current,
-                            strokeWidth = 2.dp,
-                        )
+                        if (LocalInfiniteAnimationsEnabled.current) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(18.dp),
+                                color = LocalContentColor.current,
+                                strokeWidth = 2.dp,
+                            )
+                        } else {
+                            // 测试/静态渲染：用确定值进度圈替代无限旋转动画，避免 compose 无法 idle
+                            CircularProgressIndicator(
+                                progress = { 0.6f },
+                                modifier = Modifier.size(18.dp),
+                                color = LocalContentColor.current,
+                                strokeWidth = 2.dp,
+                            )
+                        }
                     } else {
                         Icon(
                             imageVector = if (targetPhase == RunControlPhase.START) {

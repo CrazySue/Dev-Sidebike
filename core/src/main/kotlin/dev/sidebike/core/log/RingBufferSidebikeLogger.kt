@@ -74,7 +74,7 @@ class RingBufferSidebikeLogger(
 
     companion object {
         private val HEADER_VALUE = Regex(
-            """(?i)\b(authorization|proxy-authorization|cookie|set-cookie|x-api-key|api-key)\s*[:=]\s*[^\s,;]+""",
+            """(?i)\b(authorization|proxy-authorization|cookie|set-cookie|x-api-key|api-key)\s*:\s*[^\r\n]+""",
         )
         private val TOKEN_PARAM = Regex("""(?i)\b(token|access_token|password|secret|key)=[^&\s]+""")
 

@@ -28,6 +28,13 @@ object UiFormat {
     /** 整数计数：按中文习惯加千位分隔符。 */
     fun count(value: Long): String = String.format(Locale.CHINA, "%,d", value)
 
+    /**
+     * 字节数展示：已有连接但字节统计仍为 0 时显示 "—"（统计链路未就绪/未知），
+     * 避免把「未知」误报成 "0 B"。
+     */
+    fun bytesOrDash(bytes: Long, hasConnections: Boolean): String =
+        if (bytes == 0L && hasConnections) "—" else bytes(bytes)
+
     /** 毫秒延迟。 */
     fun latency(ms: Long): String = if (ms <= 0) "—" else "$ms ms"
 

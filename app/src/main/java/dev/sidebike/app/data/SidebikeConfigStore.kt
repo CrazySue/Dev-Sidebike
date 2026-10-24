@@ -8,6 +8,7 @@ import dev.sidebike.core.api.DnsProvider
 import dev.sidebike.core.api.DnsSettings
 import dev.sidebike.core.api.InterceptAction
 import dev.sidebike.core.api.SidebikeConfig
+import dev.sidebike.core.config.BundledConfig
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonNull
@@ -43,13 +44,34 @@ class SidebikeConfigStore(context: Context) {
         prettyPrint = false
     }
 
-    /** Loads the persisted config; returns defaults when nothing is stored or the blob is corrupt. */
+    /**
+     * Bundled defaults: `core`'s built-in defaults merged with the offline official-rules snapshot
+     * (`intercepts` / `preSetIpList` / `whiteList` / `dns.providers` / `dns.mapping` …). Used whenever
+     * the user has no persisted override yet, so the UI/Rules page is populated on first launch
+     * instead of showing an empty config (QA-004). Loaded once and cached (the snapshot is ~40 KB).
+     */
+    @Volatile
+    private var cachedBundledDefaults: SidebikeConfig? = null
+
+    private fun bundledDefaults(): SidebikeConfig {
+        cachedBundledDefaults?.let { return it }
+        return synchronized(this) {
+            cachedBundledDefaults ?: runCatching { BundledConfig.load() }
+                .getOrElse { error ->
+                    Log.w(TAG, "Bundled rules snapshot unavailable, falling back to API defaults", error)
+                    SidebikeConfig()
+                }
+                .also { cachedBundledDefaults = it }
+        }
+    }
+
+    /** Loads the persisted config; returns bundled defaults when nothing is stored or the blob is corrupt. */
     fun load(): SidebikeConfig {
-        val raw = prefs.getString(KEY_CONFIG_JSON, null) ?: return SidebikeConfig()
+        val raw = prefs.getString(KEY_CONFIG_JSON, null) ?: return bundledDefaults()
         return runCatching { json.decodeFromString(SidebikeConfig.serializer(), raw) }
             .getOrElse { error ->
-                Log.w(TAG, "Persisted config is corrupt, falling back to defaults", error)
-                SidebikeConfig()
+                Log.w(TAG, "Persisted config is corrupt, falling back to bundled defaults", error)
+                bundledDefaults()
             }
     }
 
@@ -107,14 +129,14 @@ class SidebikeConfigStore(context: Context) {
         val rootElement = runCatching { json.parseToJsonElement(importedJson) }
             .getOrElse { error ->
                 return ImportResult(
-                    config = SidebikeConfig(),
+                    config = bundledDefaults(),
                     importedSections = emptyList(),
                     warnings = listOf("JSON 解析失败: ${error.message}"),
                 )
             }
         val root = rootElement as? JsonObject
             ?: return ImportResult(
-                config = SidebikeConfig(),
+                config = bundledDefaults(),
                 importedSections = emptyList(),
                 warnings = listOf("JSON 顶层必须是对象"),
             )
@@ -125,7 +147,7 @@ class SidebikeConfigStore(context: Context) {
             val decoded = runCatching { json.decodeFromJsonElement(SidebikeConfig.serializer(), root) }
                 .getOrElse { error ->
                     return ImportResult(
-                        config = SidebikeConfig(),
+                        config = bundledDefaults(),
                         importedSections = emptyList(),
                         warnings = listOf("无法识别的配置格式: ${error.message}"),
                     )
@@ -133,7 +155,9 @@ class SidebikeConfigStore(context: Context) {
             return ImportResult(decoded, listOf("完整配置"), emptyList())
         }
 
-        var config = SidebikeConfig()
+        // Start from the bundled official rules so an import only *overrides* the sections the
+        // upstream document actually contains, instead of wiping the built-in rules (QA-004).
+        var config = bundledDefaults()
 
         config = config.importServerProxy(server, warnings)?.also { sections += "proxy" } ?: config
         config = config.importServerDns(server["dns"] as? JsonObject, warnings)?.also { sections += "dns" } ?: config

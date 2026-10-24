@@ -14,7 +14,12 @@ $acquired = $false
 $exitCode = 0
 try {
     Write-Host "[gradle] 等待其他 agent 的构建完成（全局构建锁）..." -ForegroundColor DarkGray
-    $acquired = $mutex.WaitOne([TimeSpan]::FromMinutes(20))
+    try {
+        $acquired = $mutex.WaitOne([TimeSpan]::FromMinutes(20))
+    } catch [System.Threading.AbandonedMutexException] {
+        Write-Host "[gradle] 接管被放弃的构建锁（前一个构建进程异常退出）" -ForegroundColor Yellow
+        $acquired = $true
+    }
     if (-not $acquired) { throw "[gradle] 等待构建锁超时（20 分钟）" }
     Write-Host "[gradle] 获得构建锁，执行: gradle $($GradleArgs -join ' ')" -ForegroundColor DarkGray
     & "$root\tools\gradle-8.9\bin\gradle.bat" -p $root --console=plain @GradleArgs

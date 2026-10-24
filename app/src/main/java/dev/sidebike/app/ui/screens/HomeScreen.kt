@@ -5,8 +5,8 @@ package dev.sidebike.app.ui.screens
 import android.os.Build
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.infiniteRepeatable
@@ -36,6 +36,7 @@ import androidx.compose.material.icons.outlined.Dns
 import androidx.compose.material.icons.outlined.ErrorOutline
 import androidx.compose.material.icons.outlined.Info
 import androidx.compose.material.icons.outlined.Link
+import androidx.compose.material.icons.outlined.NotificationsActive
 import androidx.compose.material.icons.outlined.ReceiptLong
 import androidx.compose.material.icons.outlined.Rule
 import androidx.compose.material.icons.outlined.Speed
@@ -43,11 +44,13 @@ import androidx.compose.material.icons.outlined.VerifiedUser
 import androidx.compose.material.icons.outlined.WarningAmber
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.ListItem
+import androidx.compose.material3.ListItemColors
 import androidx.compose.material3.ListItemDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
@@ -68,12 +71,16 @@ import dev.sidebike.app.state.RunStatus
 import dev.sidebike.app.state.SidebikeUiState
 import dev.sidebike.app.ui.components.EmptyState
 import dev.sidebike.app.ui.components.InfoBanner
+import dev.sidebike.app.ui.components.MitmCaStatus
 import dev.sidebike.app.ui.components.RunControlButton
 import dev.sidebike.app.ui.components.SectionHeader
 import dev.sidebike.app.ui.components.StatTile
 import dev.sidebike.app.ui.components.StatusPill
 import dev.sidebike.app.ui.components.StatusVisuals
 import dev.sidebike.app.ui.components.UiFormat
+import dev.sidebike.app.ui.components.mitmCaHomeLabelRes
+import dev.sidebike.app.ui.components.mitmCaStatusOf
+import dev.sidebike.app.ui.motion.LocalInfiniteAnimationsEnabled
 import dev.sidebike.app.ui.motion.M3Motion
 import dev.sidebike.app.ui.motion.m3ExpandIn
 import dev.sidebike.app.ui.motion.m3FadeThrough
@@ -83,13 +90,12 @@ import dev.sidebike.core.api.LogEntry
 import dev.sidebike.core.api.TrafficStats
 
 /**
- * 首页：状态 Hero（RunStatus + 运行时长 + 错误）+ 启动/停止控件 + 实时统计 + 快捷操作 + 最近日志。
+ * 首页：状态 Hero + 启动/停止控件 + 实时统计 + 环境提示 + 快捷操作 + 最近日志。
  *
- * 动效（详见 docs/design/03-motion-spec.md）：
- * - 状态切换：Hero 容器色/圆角 `animate*AsState`（Standard / EmphasizedDecelerate）+ 标题 `AnimatedContent` fade-through
- * - 启动/停止按钮：颜色 morph + 文案 fade-through + 进度指示器展开
- * - 统计数字：`AnimatedCounterText`（Long 滚动，EmphasizedDecelerate）
- * - 错误横幅 / 进度条：`AnimatedVisibility`（expand/shrink，Emphasized）
+ * Hero 信息层级（避免重复状态文案）：
+ * - chip = 唯一状态标签；
+ * - headline = 信息密度更高的标题（如「已连接 · 01:02:04」）；
+ * - subtitle = 运行能力行（DNS 防污染 / 系统代理 / MITM 状态）。
  */
 @Composable
 fun HomeScreen(
@@ -104,6 +110,8 @@ fun HomeScreen(
     onToggleMitm: (Boolean) -> Unit,
     onRefreshCa: () -> Unit,
     modifier: Modifier = Modifier,
+    notificationsDenied: Boolean = false,
+    onRequestNotificationPermission: () -> Unit = {},
 ) {
     LazyColumn(
         modifier = modifier
@@ -112,7 +120,7 @@ fun HomeScreen(
         contentPadding = PaddingValues(
             start = 16.dp,
             end = 16.dp,
-            top = contentPadding.calculateTopPadding() + 8.dp,
+            top = contentPadding.calculateTopPadding() + 16.dp,
             bottom = contentPadding.calculateBottomPadding() + 24.dp,
         ),
         verticalArrangement = Arrangement.spacedBy(16.dp),
@@ -126,9 +134,13 @@ fun HomeScreen(
         item(key = "capability-note") {
             CapabilityNote()
         }
-        if (hasEnvironmentWarnings(state)) {
+        if (hasEnvironmentWarnings(state, notificationsDenied)) {
             item(key = "environment-warnings") {
-                HomeWarnings(state = state)
+                HomeWarnings(
+                    state = state,
+                    notificationsDenied = notificationsDenied,
+                    onRequestNotificationPermission = onRequestNotificationPermission,
+                )
             }
         }
         item(key = "stats-header") {
@@ -214,6 +226,8 @@ private fun StatusHeroCard(
         animationSpec = tween(durationMillis = M3Motion.Medium2, easing = M3Motion.EmphasizedDecelerate),
         label = "heroCornerRadius",
     )
+    val mitmEnabled = state.config.proxy.mitmEnabled || state.config.mitm.enabled
+    val caStatus = mitmCaStatusOf(mitmEnabled = mitmEnabled, caInstalled = state.caInstalled)
 
     Surface(
         modifier = Modifier.fillMaxWidth(),
@@ -239,13 +253,21 @@ private fun StatusHeroCard(
                     dotAlpha = rememberPulseAlpha(pulsing),
                 )
                 Spacer(modifier = Modifier.weight(1f))
-                Text(
-                    text = uptimeLabel(state),
-                    style = MaterialTheme.typography.labelLarge,
-                    color = contentColor.copy(alpha = 0.8f),
-                )
                 AnimatedVisibility(visible = state.isBusy, enter = m3ExpandIn(), exit = m3ShrinkOut()) {
-                    ProgressSpinner(color = accentColor)
+                    if (LocalInfiniteAnimationsEnabled.current) {
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(18.dp),
+                            color = accentColor,
+                            strokeWidth = 2.dp,
+                        )
+                    } else {
+                        CircularProgressIndicator(
+                            progress = { 0.6f },
+                            modifier = Modifier.size(18.dp),
+                            color = accentColor,
+                            strokeWidth = 2.dp,
+                        )
+                    }
                 }
             }
 
@@ -265,18 +287,19 @@ private fun StatusHeroCard(
                         modifier = Modifier.size(40.dp),
                         tint = accentColor,
                     )
-                    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Column(
+                        modifier = Modifier.weight(1f),
+                        verticalArrangement = Arrangement.spacedBy(4.dp),
+                    ) {
                         Text(
-                            text = stringResource(StatusVisuals.labelRes(status)),
+                            text = heroHeadline(status = status, uptimeMs = state.uptimeMs),
                             style = MaterialTheme.typography.headlineSmall,
                             color = contentColor,
                         )
                         Text(
-                            text = state.statusMessage.ifBlank {
-                                stringResource(StatusVisuals.descriptionRes(status))
-                            },
+                            text = heroSubtitle(state = state, mitmEnabled = mitmEnabled),
                             style = MaterialTheme.typography.bodyMedium,
-                            color = contentColor.copy(alpha = 0.8f),
+                            color = contentColor.copy(alpha = 0.82f),
                         )
                     }
                 }
@@ -315,13 +338,7 @@ private fun StatusHeroCard(
                 StatusPill(
                     label = stringResource(
                         R.string.home_chip_mitm,
-                        stringResource(
-                            if (state.config.proxy.mitmEnabled || state.config.mitm.enabled) {
-                                R.string.state_on
-                            } else {
-                                R.string.state_off
-                            },
-                        ),
+                        stringResource(if (mitmEnabled) R.string.state_on else R.string.state_off),
                     ),
                     containerColor = contentColor.copy(alpha = 0.10f),
                     contentColor = contentColor,
@@ -330,11 +347,20 @@ private fun StatusHeroCard(
             }
 
             AnimatedVisibility(visible = state.isBusy, enter = m3ExpandIn(), exit = m3ShrinkOut()) {
-                LinearProgressIndicator(
-                    modifier = Modifier.fillMaxWidth(),
-                    color = accentColor,
-                    trackColor = contentColor.copy(alpha = 0.24f),
-                )
+                if (LocalInfiniteAnimationsEnabled.current) {
+                    LinearProgressIndicator(
+                        modifier = Modifier.fillMaxWidth(),
+                        color = accentColor,
+                        trackColor = contentColor.copy(alpha = 0.24f),
+                    )
+                } else {
+                    LinearProgressIndicator(
+                        progress = { 0.6f },
+                        modifier = Modifier.fillMaxWidth(),
+                        color = accentColor,
+                        trackColor = contentColor.copy(alpha = 0.24f),
+                    )
+                }
             }
 
             AnimatedVisibility(
@@ -350,45 +376,55 @@ private fun StatusHeroCard(
                 )
             }
 
-            if (!state.caInstalled) {
-                Text(
-                    text = stringResource(
-                        if (state.config.proxy.mitmEnabled || state.config.mitm.enabled) {
-                            R.string.home_ca_not_installed
-                        } else {
-                            R.string.home_ca_not_generated
-                        },
-                    ),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = contentColor.copy(alpha = 0.8f),
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clickable(onClick = onOpenCertGuide),
-                )
-            } else {
-                Text(
-                    text = stringResource(R.string.home_ca_installed),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = contentColor.copy(alpha = 0.8f),
-                    modifier = Modifier.clickable(onClick = onRefreshCa),
-                )
-            }
+            Text(
+                text = stringResource(mitmCaHomeLabelRes(caStatus)),
+                style = MaterialTheme.typography.bodySmall,
+                color = contentColor.copy(alpha = 0.82f),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable {
+                        if (caStatus == MitmCaStatus.READY) onRefreshCa() else onOpenCertGuide()
+                    },
+            )
         }
     }
 }
 
+/** Hero 标题：状态语义 + 运行时长，避免与 chip 文案重复。 */
 @Composable
-private fun ProgressSpinner(color: Color) {
-    androidx.compose.material3.CircularProgressIndicator(
-        modifier = Modifier.size(18.dp),
-        color = color,
-        strokeWidth = 2.dp,
-    )
+private fun heroHeadline(status: RunStatus, uptimeMs: Long): String = when (status) {
+    RunStatus.IDLE -> stringResource(R.string.home_headline_idle)
+    RunStatus.PREPARING -> stringResource(R.string.home_headline_preparing)
+    RunStatus.STARTING -> stringResource(R.string.home_headline_starting)
+    RunStatus.RUNNING -> stringResource(R.string.home_headline_running) +
+        if (uptimeMs > 0) " · " + UiFormat.uptime(uptimeMs) else ""
+    RunStatus.STOPPING -> stringResource(R.string.home_headline_stopping)
+    RunStatus.ERROR -> stringResource(R.string.home_headline_error)
+}
+
+/** Hero 副标题：运行时展示真实能力行；其余状态展示状态说明/错误信息。 */
+@Composable
+private fun heroSubtitle(state: SidebikeUiState, mitmEnabled: Boolean): String {
+    if (state.status != RunStatus.RUNNING) {
+        return state.statusMessage.ifBlank { stringResource(StatusVisuals.descriptionRes(state.status)) }
+    }
+    val parts = buildList {
+        add(stringResource(if (state.vpnActive) R.string.home_cap_dns_active else R.string.home_cap_dns_inactive))
+        when (state.systemProxyRegistered) {
+            true -> add(stringResource(R.string.home_cap_proxy_registered))
+            false -> add(stringResource(R.string.home_cap_proxy_not_registered))
+            null -> if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                add(stringResource(R.string.home_cap_proxy_unknown))
+            }
+        }
+        add(stringResource(if (mitmEnabled) R.string.home_cap_mitm_on else R.string.home_cap_mitm_off))
+    }
+    return parts.joinToString(separator = " · ")
 }
 
 @Composable
 private fun rememberPulseAlpha(active: Boolean): Float {
-    if (!active) return 1f
+    if (!active || !LocalInfiniteAnimationsEnabled.current) return 1f
     val transition = rememberInfiniteTransition(label = "statusPulse")
     val alpha by transition.animateFloat(
         initialValue = 1f,
@@ -403,18 +439,23 @@ private fun rememberPulseAlpha(active: Boolean): Float {
 }
 
 // ---------------------------------------------------------------------------------------------
-// Environment warnings (Private DNS / lockdown / system proxy / port fallback)
+// Environment warnings
 // ---------------------------------------------------------------------------------------------
 
 /** 是否展示环境提示区域（无任何提示时不占用列表间距）。 */
-fun hasEnvironmentWarnings(state: SidebikeUiState): Boolean =
+fun hasEnvironmentWarnings(state: SidebikeUiState, notificationsDenied: Boolean = false): Boolean =
     state.privateDnsActive ||
         state.lockdownDetected ||
+        notificationsDenied ||
         (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q && state.systemProxyRegistered == false) ||
         (state.proxyRunning && state.effectiveProxyPort > 0 && state.effectiveProxyPort != state.config.proxy.port)
 
 @Composable
-private fun HomeWarnings(state: SidebikeUiState) {
+private fun HomeWarnings(
+    state: SidebikeUiState,
+    notificationsDenied: Boolean,
+    onRequestNotificationPermission: () -> Unit,
+) {
     val colorScheme = MaterialTheme.colorScheme
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         AnimatedVisibility(visible = state.privateDnsActive, enter = m3ExpandIn(), exit = m3ShrinkOut()) {
@@ -443,6 +484,19 @@ private fun HomeWarnings(state: SidebikeUiState) {
                 icon = Icons.Outlined.WarningAmber,
                 containerColor = colorScheme.tertiaryContainer,
                 contentColor = colorScheme.onTertiaryContainer,
+            )
+        }
+        AnimatedVisibility(visible = notificationsDenied, enter = m3ExpandIn(), exit = m3ShrinkOut()) {
+            InfoBanner(
+                text = stringResource(R.string.home_warn_notifications),
+                icon = Icons.Outlined.NotificationsActive,
+                containerColor = colorScheme.tertiaryContainer,
+                contentColor = colorScheme.onTertiaryContainer,
+                action = {
+                    TextButton(onClick = onRequestNotificationPermission) {
+                        Text(stringResource(R.string.action_allow_notifications))
+                    }
+                },
             )
         }
         AnimatedVisibility(
@@ -498,6 +552,7 @@ private fun CapabilityNote() {
 
 @Composable
 private fun StatsGrid(stats: TrafficStats) {
+    val hasTraffic = stats.totalConnections > 0
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             StatTile(
@@ -518,14 +573,14 @@ private fun StatsGrid(stats: TrafficStats) {
                 label = stringResource(R.string.stats_bytes_up),
                 value = stats.bytesUp,
                 icon = Icons.Outlined.ArrowUpward,
-                format = UiFormat::bytes,
+                format = { value -> UiFormat.bytesOrDash(value, hasTraffic) },
                 modifier = Modifier.weight(1f),
             )
             StatTile(
                 label = stringResource(R.string.stats_bytes_down),
                 value = stats.bytesDown,
                 icon = Icons.Outlined.ArrowDownward,
-                format = UiFormat::bytes,
+                format = { value -> UiFormat.bytesOrDash(value, hasTraffic) },
                 modifier = Modifier.weight(1f),
             )
         }
@@ -567,6 +622,7 @@ private fun QuickActionsCard(
         leadingIconColor = MaterialTheme.colorScheme.primary,
         trailingIconColor = MaterialTheme.colorScheme.onSurfaceVariant,
     )
+    val caStatus = mitmCaStatusOf(mitmEnabled = mitmEnabled, caInstalled = caInstalled)
     Card(
         modifier = Modifier.fillMaxWidth(),
         shape = MaterialTheme.shapes.large,
@@ -577,7 +633,7 @@ private fun QuickActionsCard(
         Column {
             ListItem(
                 headlineContent = { Text(stringResource(R.string.home_mitm)) },
-                supportingContent = { Text(stringResource(R.string.home_mitm_desc)) },
+                supportingContent = { Text(stringResource(mitmCaHomeLabelRes(caStatus))) },
                 leadingContent = { Icon(Icons.Outlined.VerifiedUser, contentDescription = null) },
                 trailingContent = {
                     Switch(
@@ -607,9 +663,7 @@ private fun QuickActionsCard(
             ActionListItem(
                 icon = Icons.Outlined.VerifiedUser,
                 headline = stringResource(R.string.home_action_cert),
-                supporting = stringResource(
-                    if (caInstalled) R.string.home_ca_installed else R.string.home_ca_not_installed,
-                ),
+                supporting = stringResource(mitmCaHomeLabelRes(caStatus)),
                 colors = listColors,
                 onClick = onOpenCertGuide,
             )
@@ -622,7 +676,7 @@ private fun ActionListItem(
     icon: ImageVector,
     headline: String,
     supporting: String,
-    colors: androidx.compose.material3.ListItemColors,
+    colors: ListItemColors,
     onClick: () -> Unit,
 ) {
     ListItem(
