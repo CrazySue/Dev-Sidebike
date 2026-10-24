@@ -62,7 +62,7 @@
 
 | 验证 | 结果 |
 | --- | --- |
-| `:core:test` | **183 tests，0 failed，1 skipped**（真实网络 E2E 为 opt-in skip；含 QA 新增 core 对抗测试 9 例：HTTP 4000 组随机字节 fuzz / 超大 header / anti-smuggling / CONNECT 怪目标 / JSON5 2000 组 fuzz / 畸形配置导入 / 规则引擎怪 host） |
+| `:core:test` | **183 tests**（交付构建时为 174；交付后 QA 补充 9 例对抗测试，当前树 183），0 failed，1 skipped（真实网络 E2E 为 opt-in skip；含 QA HTTP 4000 组随机字节 fuzz / 超大 header / anti-smuggling / CONNECT 怪目标 / JSON5 2000 组 fuzz / 畸形配置导入 / 规则引擎怪 host） |
 | `:app:testDebugUnitTest` | **181 tests，0 failed，2 skipped**（Robolectric 截图采集为 opt-in skip；含 Controller/数据/VPN 编解码/Robolectric UI/QA 对抗 fuzz） |
 | MD3/动画静态审计 | PASS（27 个 UI Kotlin 文件，动画 72 处，运动 token 使用 36 处，无 M2/硬编码颜色/线性动画/自定义字体） |
 | APK 门禁 | PASS（release：包名/minSdk26/targetSdk35/权限/VPN 声明/FGS type/always-on/NSC user CA/debuggable=false；debug：符合变体） |
