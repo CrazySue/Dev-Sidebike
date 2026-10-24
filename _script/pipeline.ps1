@@ -146,7 +146,7 @@ function Invoke-TestStage {
     $checkApk = "$root\_script\qa\check_apk.ps1"
     $apkOk = $false; $apkDetail = 'missing script'
     if (Test-Path $checkApk) {
-        $apkOut = & $checkApk -Apk $devApk -ExpectDebuggable $true 2>&1 | Out-String
+        $apkOut = & $checkApk -Apk $devApk -ExpectDebuggable 2>&1 | Out-String
         $apkOk = ($LASTEXITCODE -eq 0)
         $apkDetail = if ($apkOk) { '结构/清单校验通过' } else { ($apkOut -split "`n" | Select-Object -First 12) -join ' | ' }
         $apkOut | Set-Content -Encoding UTF8 "$outDir\apk-check.log"
@@ -219,7 +219,7 @@ function Invoke-ProdStage {
     # 签名校验 + 交付清单
     $apkCheck = "$root\_script\qa\check_apk.ps1"
     if (Test-Path $apkCheck) {
-        & $apkCheck -Apk "$distDir\$releaseName" -ExpectDebuggable $false | Out-Host
+        & $apkCheck -Apk "$distDir\$releaseName" | Out-Host
         if ($LASTEXITCODE -ne 0) { throw "release APK 校验失败" }
     }
     $hashes = @()
