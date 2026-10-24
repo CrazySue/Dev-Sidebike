@@ -22,7 +22,7 @@ object CaCertificateActions {
     private const val CA_ALIAS = "Dev-Sidebike CA"
 
     private val BASE64_ALPHABET: Set<Char> =
-        ('A'..'Z') + ('a'..'z') + ('0'..'9') + setOf('+', '/', '=')
+        (('A'..'Z') + ('a'..'z') + ('0'..'9') + setOf('+', '/', '=')).toSet()
 
     /** 去掉 PEM armor 并 Base64 解码为 DER；非法输入（非 Base64 / 非 DER SEQUENCE）返回 null。 */
     fun parseDer(pem: String): ByteArray? {

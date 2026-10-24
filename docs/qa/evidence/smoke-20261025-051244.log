@@ -1,0 +1,42 @@
+=== Dev-Sidebike emulator smoke 20261025-051244 ===
+apk=E:\WorkSpace\Dev-Sidebike\out\dev\app-debug.apk package=dev.sidebike.app.debug
+[PASS] emulator-online: sys.boot_completed=1
+[PASS] apk-install: (skipped; apk='E:\WorkSpace\Dev-Sidebike\out\dev\app-debug.apk')
+[perm] POST_NOTIFICATIONS grant attempted
+[PASS] app-launch: Starting: Intent { cmp=dev.sidebike.app.debug/dev.sidebike.app.MainActivity }
+Status: timeout
+LaunchState: UNKNOWN (-1)
+Activity: dev.sidebike.app.debug/dev.sidebike.app.MainActivity
+WaitTime: 14519
+Complete
+[shot] E:\WorkSpace\Dev-Sidebike\docs\qa\evidence\20261025-051244-01-launch.png (46521 bytes, png=True)
+[tap] '启动服务' at 574,1148
+[shot] E:\WorkSpace\Dev-Sidebike\docs\qa\evidence\20261025-051244-02-start-tapped.png (183767 bytes, png=True)
+[PASS] vpn-established: dumpsys connectivity VPN CONNECTED + tun0
+[PASS] E1-system-proxy-registered: VPN LinkProperties HttpProxy 127.0.0.1
+[PASS] E2-vpn-dns-configured: VPN DnsAddresses 10.111.0.2
+[shot] E:\WorkSpace\Dev-Sidebike\docs\qa\evidence\20261025-051244-03-running.png (204309 bytes, png=True)
+[PASS] E2-dns-resolution: example.com=172.66.147.243; github.com=20.200.245.247
+[dns] example.com=172.66.147.243 | github.com=20.200.245.247
+[shot] E:\WorkSpace\Dev-Sidebike\docs\qa\evidence\20261025-051244-04-after-dns.png (204079 bytes, png=True)
+[tap] '停止服务' at 574,1200
+[FAIL] SMK-03-stop-recovers: tun0 removed after stop
+[PASS] SMK-03-dns-after-stop: example.com=172.66.147.243
+[shot] E:\WorkSpace\Dev-Sidebike\docs\qa\evidence\20261025-051244-05-stopped.png (176533 bytes, png=True)
+=== SUMMARY ===
+  [PASS] emulator-online - sys.boot_completed=1
+  [PASS] apk-install - (skipped; apk='E:\WorkSpace\Dev-Sidebike\out\dev\app-debug.apk')
+  [PASS] app-launch - Starting: Intent { cmp=dev.sidebike.app.debug/dev.sidebike.app.MainActivity }
+Status: timeout
+LaunchState: UNKNOWN (-1)
+Activity: dev.sidebike.app.debug/dev.sidebike.app.MainActivity
+WaitTime: 14519
+Complete
+  [PASS] vpn-established - dumpsys connectivity VPN CONNECTED + tun0
+  [PASS] E1-system-proxy-registered - VPN LinkProperties HttpProxy 127.0.0.1
+  [PASS] E2-vpn-dns-configured - VPN DnsAddresses 10.111.0.2
+  [PASS] E2-dns-resolution - example.com=172.66.147.243; github.com=20.200.245.247
+  [FAIL] SMK-03-stop-recovers - tun0 removed after stop
+  [PASS] SMK-03-dns-after-stop - example.com=172.66.147.243
+evidence: E:\WorkSpace\Dev-Sidebike\docs\qa\evidence
+result: 1 failed

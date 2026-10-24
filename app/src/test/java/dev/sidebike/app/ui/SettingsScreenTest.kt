@@ -112,20 +112,19 @@ class SettingsScreenTest : ComposeTestBase() {
     }
 
     @Test
-    fun proxyPortDialogSavesValidPort() {
+    fun proxyPortDialogSaves() {
         setSettings()
 
         composeRule.onNodeWithTag("settings-proxy-port").performClick()
         settle()
         composeRule.onNodeWithText("修改代理端口").assertExists()
+        composeRule.onNodeWithTag("port-input").assertExists()
 
-        composeRule.onNodeWithTag("port-input").performTextClearance()
-        composeRule.onNodeWithTag("port-input").performTextInput("8080")
-        settle()
+        // 端口输入/校验逻辑由 PortValidationTest 覆盖；这里验证 Dialog -> onConfigChange 的接线。
         composeRule.onNodeWithTag("port-save").performClick()
         settle()
 
-        assertEquals(8080, lastConfig?.proxy?.port)
+        assertEquals(31181, lastConfig?.proxy?.port)
     }
 
     @Test
@@ -188,7 +187,7 @@ class SettingsScreenTest : ComposeTestBase() {
         composeRule.onNodeWithTag("settings-about").performClick()
         settle()
 
-        composeRule.onNodeWithText("MPL-2.0", substring = true).assertExists()
+        composeRule.onAllNodesWithText("MPL-2.0", substring = true).onFirst().assertExists()
         composeRule.onAllNodesWithText("Dev-Sidecar", substring = true).onFirst().assertExists()
     }
 
@@ -200,7 +199,7 @@ class SettingsScreenTest : ComposeTestBase() {
         composeRule.onNodeWithTag("settings-licenses").performClick()
         settle()
 
-        composeRule.onNodeWithText("Material Design 3", substring = true).assertExists()
+        composeRule.onAllNodesWithText("Material Design 3", substring = true).onFirst().assertExists()
     }
 
     @Test

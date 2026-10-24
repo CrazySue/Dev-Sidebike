@@ -150,3 +150,97 @@ NetworkAgentInfo{network{102} ni{VPN CONNECTED extra: VPN:dev.sidebike.app.debug
 | G10 后台存活 | ⏸ 未测 | 待 always-on/锁屏长测（模拟器） |
 | G11 性能 | 🟡 | 冷启首次 ~15s（模拟器首启/dex），温启 <1s；DNS 解析正常；空闲 CPU 待测 |
 | G12 静态合规 | ✅ PASS | audit_md3 PASS；check_apk PASS；check_requirements 45/46（仅 git tag） |
+
+## 9. E5 故障注入 / 单测结果（最新 APK sha 304985… / git 1259ff8，2026-10-25 05:00）
+
+### E5 / E5b（debug FaultInjectionReceiver）
+| 用例 | 结果 | 证据 |
+| --- | --- | --- |
+| E5 KILL_PROXY | ✅ PASS | 故障前 VPN+DNS 正常（github 20.200.245.247）→ 广播后 engine/proxy 停止 → **tun0 消失、VPN 计数 0、普通 DNS 恢复**（example.com 172.66.147.243）；UI 进 ERROR，`lastError=本地代理已停止响应，已自动关闭 VPN 以恢复网络`（DUMP_STATE）；截图 `e5_killproxy_ui.png`；**重启 VPN 后恢复正常** |
+| E5b CRASH_ENGINE | ✅ PASS | 同样自动 teardown + 网络恢复 |
+| 配置落地（DUMP_STATE） | ✅ | interceptsDomains=69、interceptPaths=77、whiteList=5、preSetIpDomains=61、excludeIpList=152、dnsProviders=9、dnsMapping=25、domesticAllowList=1237、proxyPort=31181 |
+| 代理流量证据 | ✅ | 日志：`clientservices.googleapis.com`/`www.googleapis.com` 等 SNI rewrite 规则命中（MITM 关闭 fallback direct） |
+
+### QA 单测（app/src/test/java/dev/sidebike/app/qa/）
+`VpnCodecFuzzTest` 8/8 PASS：5000 随机字节解析不抛异常；3000 随机包 classify 不抛；任意 0–600B payload UDP 往返 + IP 校验和；非 DNS/IPv6/截断包被忽略；合法 query → SERVFAIL 应答（校验和/端口/ID/RCODE）；resolver 响应 ID 被改写；**oversized 响应裁剪且 TC 永远为 0**（QA-003 修复的回归断言）。
+
+### TC=1 修复确认（QA-003 → FIXED）
+源码 `UdpDnsCodec` 已改为：EDNS0 UDP payload clamp 到 1200 → `trimResponseToFit` 保留 question+能放下的 answer 记录、TC=0（beta 无 TCP:53）。QA 测试已同步为 never-TC 断言。
+
+### 已知问题（不阻塞 beta，记录并转 owner）
+| ID | 级别 | 内容 | Owner |
+| --- | --- | --- | --- |
+| QA-009 | S2 | 统计"上行/下行流量"始终 0 B（连接数/DNS 计数正常） | proxy-dev/engine |
+| QA-010 | S3 | tun 偶发 `忽略 tun 数据包: not-ipv4-or-malformed`（debug 日志有预算，不影响 DNS）；建议加按 reason 的计数器便于真机诊断 | android-dev |
+| QA-008 | S3 | Chrome first-run 在模拟器卡 splash（环境限制，非 app 缺陷） | — |
+
+## 10. 验收矩阵更新（05:00）
+
+| Gate | 状态 | 证据 |
+| --- | --- | --- |
+| G1 构建/单测 | 🟡 | app 编译+QA fuzz 8/8 PASS；core 13 MITM/CA 测试 proxy-dev 修复中；UI 测试 ui-dev 修复中 |
+| G2 安装/启动/五屏 | ✅ | 模拟器 + 截图 |
+| G3 VPN/通知 | ✅ | 通知权限授予；VPN RUNNING/STOP/ERROR 状态机验证 |
+| G4 系统代理 | ✅ | dumpsys HttpProxy + 连接数 + 规则命中日志 |
+| G5 DNS 闭环 | ✅ | 解析/防污染/规则种子 |
+| G6 失败安全 | ✅ | stop/force-stop/KILL_PROXY/CRASH_ENGINE 全部恢复网络+自动 teardown+可重启 |
+| G7 FGS 合规 | ✅ | static + 实跑 |
+| G8 边界诚实 | ✅ | banners/文档/UI |
+| G9 MITM | ⏸ | 未测（默认关闭；可选增强） |
+| G10 后台存活 | ⏸ | 待 always-on/锁屏长测 |
+| G11 性能 | 🟡 | 首次冷启 ~15s（模拟器首启），温启 <1s；DNS 正常；空闲 CPU 待测 |
+| G12 静态合规 | ✅ | audit_md3/check_apk PASS；check_requirements 45/46（git tag 由 Lead 交付时打） |
+
+## 11. Robolectric 截图测试策略（2026-10-25 05:10）
+
+`ScreenshotQaTest` / `ScreenshotQaTestDark`（app/src/test/java/dev/sidebike/app/qa/）已改为 **opt-in**：
+- 默认 `testDebugUnitTest` 中通过 `Assume.assumeTrue` **SKIP**（Windows 上 Robolectric NATIVE-graphics 的 `captureToImage()` 会因无限动画 idling 抛 `ComposeTimeoutException`，不能污染默认套件）；
+- 需要时运行 `_script/qa/run_screenshots.ps1`（设置 `DSH_QA_SCREENSHOTS=1` + `--no-daemon`，让 test worker 继承环境变量）；dark 变体的 qualifier 顺序 bug（`night` 需在 density 前）已修；
+- beta 验收的 UI 截图**以真机（模拟器 Android 15）证据为准**：`docs/qa/screenshots/` 共 37+ 张真 PNG（五屏 × IDLE/RUNNING/ERROR/环境警告 × 浅/深色 + E1/E2/E5 证据），不依赖 Robolectric 截图。
+
+QA 包当前测试：`VpnCodecFuzzTest` 8 个用例（默认套件中运行，全 PASS）+ 2 个 opt-in 采集方法（默认 SKIP）。
+
+## 12. 工具链事件：app 测试挂起（2026-10-25 05:06–05:15）
+
+- 现象：一个无过滤的 `:app:testDebugUnitTest` run（PID 24152，05:06:09 启动）持续 >8 分钟不退出，并占住全局构建锁；同时 2 个等待构建锁的 job。此前 pipeline 的 app 测试 gate 也表现为 "77 tests, 0 failures 但 task FAILED"（部分结果 + 挂起/崩溃）。
+- 根因（QA 侧已修复）：`ScreenshotQaTest` 在 Windows Robolectric NATIVE-graphics 下 `captureToImage()` 等 idle 超时（ComposeTimeoutException），dark 变体另有非法 qualifier 顺序。两者**已改为 opt-in（`Assume` + `DSH_QA_SCREENSHOTS=1`）**，默认套件 SKIP；`_script/qa/run_screenshots.ps1` 手动开启。
+- 时序注意：挂起的 run 在修复写入前启动，跑的是旧测试代码，因此会复现该挂起；修复后的默认套件应全绿（待 Lead 重跑确认）。
+- 结论：非产品缺陷；默认测试套件必须保持确定性，重 Robolectric 截图/长动画测试一律 opt-in 或隔离任务。
+
+## 13. QA 交付物清单（dist 可直接引用）
+
+| 交付物 | 路径 | 说明 |
+| --- | --- | --- |
+| QA 测试计划 | `docs/qa/04-test-plan.md` | 风险驱动、对应用户 6 项要求、缺陷分级、入口/出口 |
+| QA 测试报告（本文件） | `docs/qa/05-test-report.md` | 验收矩阵 + 证据 + 已知问题 + 工具链事件 |
+| 真机/模拟器证据截图 | `docs/qa/screenshots/`（37+ 张真 PNG） | 五屏 × 状态 × 浅/深色 + E1/E2/E5/SMK |
+| 模拟器 smoke 证据 | `docs/qa/evidence/` | 自动脚本日志/截图 |
+| 静态门禁 | `_script/qa/audit_md3.ps1` / `check_apk.ps1` / `check_requirements.ps1` / `run_qa_tests.ps1` | 全部 exit-code 门禁，PS5.1 + UTF-8 BOM |
+| 对抗测试 | `app/src/test/java/dev/sidebike/app/qa/VpnCodecFuzzTest.kt` | 8 用例，默认套件全绿 |
+| 模拟器工具 | `_script/qa/setup_emulator.ps1`、`launch_emulator.cmd`、`emulator_smoke.ps1` | 离线安装/启动/自动 smoke |
+| owner 真机清单 | `_script/qa/device_verify.md` | M1–M6（系统代理/DNS/Private DNS/lockdown/CA/MIUI 存活） |
+
+## 14. app 测试套件对账（05:09:45 产物）
+
+| 套件 | 结果 | 说明 |
+| --- | --- | --- |
+| `qa.ScreenshotQaTest` / `ScreenshotQaTestDark` | **skipped**（opt-in 生效） | 默认套件不再因 Robolectric 截图超时污染 |
+| `qa.VpnCodecFuzzTest` | 8/8 PASS | 对抗 fuzz/裁剪/never-TC |
+| ui.*（其余套件） | 169 PASS 左右 | — |
+| `ui.NavigationTest` | **5 FAIL** | assertExists / "Failed to inject touch input"（动画/idling 干扰） |
+| `ui.SettingsScreenTest.proxyPortDialogSavesValidPort` | **1 FAIL** | `AppNotIdleException: Compose did not get idle after 24258 attempts in 60 SECONDS` → 疑似无限组合/动画循环（Settings 端口 Dialog），转 ui-dev |
+| 合计 | 179 tests / 6 failures / 2 skipped | 归 ui-dev 修复后才能绿 app gate（G1） |
+
+这些失败为测试环境/UI 动画问题，非 VPN/DNS/代理功能缺陷；功能验收（E1/E2/E5/SMK）不受影响。
+
+## 15. 自动化 smoke 与交付门禁工具（2026-10-25 05:20）
+
+- `_script/qa/emulator_smoke.ps1`：一条命令完成 install → 启动 → 授权 → E1（系统代理注册）→ E2（DNS 解析）→ Rules 种子数 → 停止恢复 → 截图/日志落盘 `docs/qa/evidence/`。最近一次运行结果：`vpn-established / E1-system-proxy-registered / E2-vpn-dns-configured / E2-dns-resolution(example.com=172.66.147.243, github.com=20.200.245.247) / E2d-rules-seeded / SMK-03` 均 PASS（stop 检查已改为最多 20s 轮询消除异步 teardown 竞态）。
+- `_script/qa/check_delivery.ps1`（新增）：dist 交付物门禁——release/debug APK 存在、SHA256SUMS.txt 哈希逐项核对、delivery-manifest.json sha256/version 一致性、README/TEST-REPORT 存在、release APK 调 `check_apk -Release`（debuggable=false/权限/NSC/VPN 声明/版本/ABI）。
+- `_script/qa/run_qa_tests.ps1`：静态 gate 编排放（requirements + md3；可 `-WithUnitTests -Apk ... -Release`）。
+
+## 16. 自动化 smoke 全绿记录（05:15 运行）
+
+`_script/qa/emulator_smoke.ps1 -Apk out/dev/app-debug.apk -SkipInstall` → **9/9 PASS, 0 failed**：
+install → app-launch（COLD 12.4s，模拟器）→ vpn-established（VPN CONNECTED + tun0）→ E1-system-proxy-registered（`HttpProxy: [127.0.0.1] 31181`）→ E2-vpn-dns-configured（10.111.0.2）→ E2-dns-resolution（example.com=104.20.23.154；github.com=20.200.245.247）→ E2d-rules-seeded → SMK-03-stop-recovers（tun0 20s 轮询消失）→ SMK-03-dns-after-stop（解析恢复）。
+证据：`docs/qa/evidence/smoke-20261025-051519.log` + 5 张 PNG。该脚本可作为 owner/未来回归的标准验收入口。

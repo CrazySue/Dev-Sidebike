@@ -856,7 +856,8 @@ class DefaultSidebikeController internal constructor(
         uptimeMs = if (to == RunStatus.RUNNING) uptimeMs else 0L,
         stats = if (to == RunStatus.RUNNING) stats else TrafficStats(),
         proxyRunning = if (to == RunStatus.RUNNING) proxyRunning else false,
-        systemProxyRegistered = if (to == RunStatus.PREPARING) null else systemProxyRegistered,
+        // The system-proxy registration only means something while the VPN network is up.
+        systemProxyRegistered = if (to == RunStatus.RUNNING) systemProxyRegistered else null,
     )
 
     // ---------------------------------------------------------------- network helpers (real impl)

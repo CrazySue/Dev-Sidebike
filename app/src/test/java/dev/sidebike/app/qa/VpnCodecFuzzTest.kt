@@ -171,22 +171,26 @@ class VpnCodecFuzzTest {
     }
 
     @Test
-    fun oversizedResolverResponseBehaviourIsDocumented() {
-        // QA NOTE (known gap, docs/feasibility/03, QA-003): when the answer does not fit the tun MTU
-        // the handler currently emits TC=1, but we do not listen on TCP:53, so Android's
-        // resolver retry-over-TCP would time out. The required fix is to trim answers to the client
-        // EDNS0 buffer and never set TC. Until then this test only pins the safety property that a
-        // reply never exceeds the tun MTU (so the tun write cannot fail / fragment).
+    fun oversizedResolverResponseIsTrimmedWithoutTc() {
+        // Beta has no TCP:53 listener, so TC=1 would make Android's resolver retry over TCP and
+        // time out. Contract (QA-003 fix): answers are trimmed to the client EDNS0 buffer / tun MTU
+        // and TC stays 0. This test fails loudly if anyone reintroduces TC=1 (or an oversized reply).
         val query = buildDnsQuery(id = 0x7777, name = "big.example.com", qtype = DnsWire.QTYPE_A)
         val packet = IpPacket.buildUdpIpv4(byteArrayOf(10, 0, 0, 9), 5555, vpnDns, 53, query)
         val request = (handler.classify(packet) as DnsTunHandler.Classified.Dns).request
 
-        val huge = ByteArray(handler.maxDnsPayload + 1) { it.toByte() }
+        val huge = ByteArray(handler.maxDnsPayload + 512) { it.toByte() }
         // Make it a syntactically plausible DNS answer (the handler may still short-circuit).
         huge[0] = 0x77; huge[1] = 0x77.toByte(); huge[2] = 0x81.toByte(); huge[3] = 0x80.toByte()
         val reply = handler.buildReply(request, huge)
         if (reply != null) {
             assertTrue("reply must fit the tun MTU", reply.size <= handler.maxDnsPayload + 28)
+            val ip = IpPacket.parseIpv4(reply)!!
+            val dns = IpPacket.parseUdp(ip.payload)!!.payload
+            if (dns.size >= DnsWire.HEADER_SIZE) {
+                val flags = DnsWire.u16(dns, 2)
+                assertEquals("TC must never be set (no TCP:53 listener)", 0, flags and 0x0200)
+            }
         }
     }
 

@@ -16,6 +16,7 @@ import dev.sidebike.core.proxy.TestHttpServer
 import dev.sidebike.core.proxy.TestResponse
 import dev.sidebike.core.proxy.TestRuleEngine
 import dev.sidebike.core.proxy.TestTlsHttpServer
+import dev.sidebike.core.proxy.awaitTrue
 import dev.sidebike.core.proxy.textResponse
 import dev.sidebike.core.util.FakeClock
 import dev.sidebike.core.util.HttpCodec
@@ -125,7 +126,7 @@ class MitmEngineTest {
         assertEquals("/hello", upstream.requests[0].target)
         assertEquals("1", upstream.requests[0].header("x-mitm"))
         // the client must have received a leaf certificate issued for the CONNECT host
-        assertEquals(1, proxy.trafficSnapshot().successfulConnections)
+        awaitTrue { proxy.trafficSnapshot().successfulConnections == 1L }
     }
 
     @Test
@@ -402,5 +403,62 @@ class MitmEngineTest {
         closeTlsClient(ssl)
         assertEquals(200, response.status)
         assertEquals("chunked-body-payload", RawHttpClient.requestBodyText(response))
+    }
+
+    @Test
+    fun mitmInjectsScriptIntoGzipEncodedHtml() {
+        val gzipHtml = gzipBytes("<html><body>gzipped</body></html>")
+        val upstreamCa = TestCAs.newCa(clock)
+        val upstream = TestTlsHttpServer(upstreamCa, "gzip.test") {
+            TestResponse(
+                status = 200,
+                headers = listOf(
+                    "Content-Type" to "text/html; charset=utf-8",
+                    "Content-Encoding" to "gzip",
+                ),
+                body = gzipHtml,
+            )
+        }.track()
+        val dns = TestDnsResolver()
+        dns.register("gzip.test", "127.0.0.1")
+        val action = intercept("""{"script":"window.__gzip=1"}""")
+        val ruleEngine = TestRuleEngine(planner = { _, _, _ ->
+            RoutePlan(RouteKind.DIRECT, "gzip.test", upstream.port, action = action, reason = "script")
+        })
+        val (proxy, caPem) = startMitmProxy(ruleEngine, dns)
+        val ssl = MitmTestClient.connect(proxy.port, "gzip.test", upstream.port, caPem)
+        val response = MitmTestClient.request(ssl, "GET", "/page")
+        closeTlsClient(ssl)
+
+        assertEquals(200, response.status)
+        assertEquals("gzip", RawHttpClient.header(response, "Content-Encoding"))
+        val decoded = gunzipBytes(response.body)
+        val html = decoded.toString(Charsets.UTF_8)
+        assertTrue("injected script missing in decompressed body: $html", html.contains("window.__gzip=1"))
+        assertTrue(html.contains("gzipped"))
+        assertTrue("injection must happen before </body>", html.indexOf("__gzip") < html.indexOf("</body>"))
+        // Content-Length must describe the re-compressed body, not the original one.
+        assertEquals(response.body.size.toString(), RawHttpClient.header(response, "Content-Length"))
+    }
+
+    private fun gzipBytes(text: String): ByteArray {
+        val buffer = java.io.ByteArrayOutputStream()
+        val gzipOut = java.util.zip.GZIPOutputStream(buffer)
+        gzipOut.write(text.toByteArray(Charsets.UTF_8))
+        gzipOut.close()
+        return buffer.toByteArray()
+    }
+
+    private fun gunzipBytes(bytes: ByteArray): ByteArray {
+        val gzipIn = java.util.zip.GZIPInputStream(bytes.inputStream())
+        val buffer = java.io.ByteArrayOutputStream()
+        val chunk = ByteArray(4096)
+        while (true) {
+            val read = gzipIn.read(chunk)
+            if (read < 0) break
+            buffer.write(chunk, 0, read)
+        }
+        gzipIn.close()
+        return buffer.toByteArray()
     }
 }

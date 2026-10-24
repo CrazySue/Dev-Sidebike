@@ -61,9 +61,14 @@ class NetworkE2EVerifyTest {
 
     @Test(timeout = 120_000)
     fun realNetworkEngineE2E() = runBlocking {
+        // 真实网络开关：环境变量 DS_NETWORK_E2E=1，或临时目录存在 ds_e2e_enable 标记文件
+        //（后者用于 Gradle Test worker 不继承客户端环境变量的情况；标记文件在启用后被删除，保持 CI 默认跳过）。
+        val enableMarker = File(System.getProperty("java.io.tmpdir"), "ds_e2e_enable")
+        val enabled = System.getenv("DS_NETWORK_E2E") == "1" || enableMarker.isFile
+        if (enabled) enableMarker.delete()
         Assume.assumeTrue(
-            "真实网络 E2E：仅当 DS_NETWORK_E2E=1 时运行（默认跳过，保持 hermetic CI）",
-            System.getenv("DS_NETWORK_E2E") == "1",
+            "真实网络 E2E：设置 DS_NETWORK_E2E=1 或创建 \$TMPDIR/ds_e2e_enable 后才运行（默认跳过，保持 hermetic CI）",
+            enabled,
         )
         val logger = RingBufferSidebikeLogger(500)
         var engine: DefaultSidebikeEngine? = null
@@ -164,6 +169,64 @@ class NetworkE2EVerifyTest {
                         record("[SKIP] CONNECT+TLS $host:$tlsPort: ${cost}ms, error=${e::class.simpleName}: ${e.message}")
                     },
                 )
+            }
+
+            // ---------- 5.5 统计实时性探针（QA 报告 engine.stats() bytes=0） ----------
+            val statsBefore = engine.stats().traffic
+            var heldRaw: Socket? = null
+            var heldTls: SSLSocket? = null
+            try {
+                heldRaw = Socket()
+                heldRaw.soTimeout = 10_000
+                heldRaw.connect(InetSocketAddress("127.0.0.1", port), 5_000)
+                heldRaw.getOutputStream().apply {
+                    write(
+                        ("CONNECT mirrors.cloud.tencent.com:443 HTTP/1.1\r\n" +
+                            "Host: mirrors.cloud.tencent.com:443\r\n\r\n").toByteArray(Charsets.US_ASCII),
+                    )
+                    flush()
+                }
+                val connectStatus = BufferedReader(InputStreamReader(heldRaw.getInputStream(), Charsets.US_ASCII)).readLine()
+                record("[INFO] held CONNECT status: $connectStatus")
+                val factory = SSLSocketFactory.getDefault() as SSLSocketFactory
+                val ssl = factory.createSocket(heldRaw, "mirrors.cloud.tencent.com", 443, true) as SSLSocket
+                ssl.soTimeout = 10_000
+                ssl.sslParameters = ssl.sslParameters.apply {
+                    serverNames = listOf(SNIHostName("mirrors.cloud.tencent.com"))
+                    endpointIdentificationAlgorithm = "HTTPS"
+                }
+                ssl.startHandshake()
+                heldTls = ssl
+                // 通过已建立的隧道发送一个真实 HTTP 请求，产生可观测流量
+                val req = "GET / HTTP/1.1\r\nHost: mirrors.cloud.tencent.com\r\nConnection: close\r\n\r\n"
+                ssl.outputStream.write(req.toByteArray(Charsets.US_ASCII))
+                ssl.outputStream.flush()
+                val responseLine = BufferedReader(InputStreamReader(ssl.inputStream, Charsets.US_ASCII)).readLine()
+                record("[INFO] held tunnel response line: $responseLine")
+                // 隧道仍然保持打开：此时引擎统计应当能看到已传输字节（QA 报告此处为 0）
+                val statsOpen = engine.stats().traffic
+                record(
+                    "[INFO] stats while tunnel OPEN: bytesUpDelta=${statsOpen.bytesUp - statsBefore.bytesUp}, " +
+                        "bytesDownDelta=${statsOpen.bytesDown - statsBefore.bytesDown}, active=${statsOpen.activeConnections}",
+                )
+                runCatching { ssl.close() }
+                heldTls = null
+                runCatching { heldRaw.close() }
+                heldRaw = null
+                Thread.sleep(700)
+                val statsClosed = engine.stats().traffic
+                val upDelta = statsClosed.bytesUp - statsBefore.bytesUp
+                val downDelta = statsClosed.bytesDown - statsBefore.bytesDown
+                record(
+                    "[${if (upDelta > 0 && downDelta > 0) "PASS" else "FAIL"}] stats after tunnel CLOSE: " +
+                        "bytesUpDelta=$upDelta, bytesDownDelta=$downDelta " +
+                        "(the counters are only flushed when the CONNECT connection ends)",
+                )
+            } catch (e: Exception) {
+                record("[SKIP] stats liveness probe failed: ${e::class.simpleName}: ${e.message}")
+            } finally {
+                runCatching { heldTls?.close() }
+                runCatching { heldRaw?.close() }
             }
 
             // ---------- 6. stop + port release ----------

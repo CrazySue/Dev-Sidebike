@@ -31,12 +31,17 @@ object ByteRelay {
     /**
      * Relays bytes until both directions reach EOF or a socket error occurs.
      * [client] is the downstream peer, [upstream] the target connection.
+     *
+     * [onBytes] (optional) is invoked with incremental `(upDelta, downDelta)` byte counts while the tunnel
+     * is still open, so statistics show live traffic instead of only updating when a tunnel closes
+     * (QA-009: long-lived HTTPS tunnels kept the UI at "0 B").
      */
     fun relay(
         client: Socket,
         upstream: Socket,
         idleTimeoutMs: Int,
         onError: ((String) -> Unit)? = null,
+        onBytes: ((upDelta: Long, downDelta: Long) -> Unit)? = null,
     ): RelayResult {
         applyIdleTimeout(client, idleTimeoutMs)
         applyIdleTimeout(upstream, idleTimeoutMs)
@@ -69,6 +74,13 @@ object ByteRelay {
                     output.write(buf, 0, n)
                     output.flush()
                     up.addAndGet(n.toLong())
+                    if (onBytes != null) {
+                        try {
+                            onBytes(n.toLong(), 0L)
+                        } catch (_: Throwable) {
+                            // statistics listener must never break the tunnel
+                        }
+                    }
                 }
             } catch (e: IOException) {
                 recordError("client->upstream", e)
@@ -90,6 +102,13 @@ object ByteRelay {
                     output.write(buf, 0, n)
                     output.flush()
                     down.addAndGet(n.toLong())
+                    if (onBytes != null) {
+                        try {
+                            onBytes(0L, n.toLong())
+                        } catch (_: Throwable) {
+                            // statistics listener must never break the tunnel
+                        }
+                    }
                 }
             } catch (e: IOException) {
                 recordError("upstream->client", e)

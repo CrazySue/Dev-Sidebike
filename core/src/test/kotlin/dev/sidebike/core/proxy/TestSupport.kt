@@ -421,9 +421,9 @@ object RawHttpClient {
         IoSupport.readAllLimited(input, 256L * 1024).toString(Charsets.UTF_8)
     }
 
-    fun readResponse(input: InputStream): TestResponse {
+    fun readResponse(input: InputStream, requestMethod: String = "GET"): TestResponse {
         val head = HttpCodec.readResponseHead(input)
-        val body = HttpCodec.responseBodyStream("GET", head, input)?.let { IoSupport.readAllLimited(it, 16L * 1024 * 1024) }
+        val body = HttpCodec.responseBodyStream(requestMethod, head, input)?.let { IoSupport.readAllLimited(it, 16L * 1024 * 1024) }
             ?: ByteArray(0)
         return TestResponse(head.status, head.headers.entries(), body)
     }
@@ -511,6 +511,15 @@ class RecordingLogger : SidebikeLogger {
     override fun subscribe(listener: (dev.sidebike.core.api.LogEntry) -> Unit): AutoCloseable = AutoCloseable { }
 }
 
+/** Polls [condition] until true (proxy statistics/listeners update asynchronously on worker threads). */
+fun awaitTrue(timeoutMs: Long = 5000, message: String = "condition not met", condition: () -> Boolean) {
+    val deadline = System.currentTimeMillis() + timeoutMs
+    while (System.currentTimeMillis() < deadline) {
+        if (condition()) return
+        Thread.sleep(10)
+    }
+    org.junit.Assert.assertTrue(message, condition())
+}
 fun freePort(): Int = ServerSocket(0, 1, InetAddress.getByName("127.0.0.1")).use { it.localPort }
 
 object TestConfigs {

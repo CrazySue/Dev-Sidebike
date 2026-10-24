@@ -161,3 +161,22 @@ powershell -NoProfile -File E:\WorkSpace\Dev-Sidebike\_script\gradle.ps1 :app:te
 - 规则页展开/收起 + 搜索过滤观察列表重排；
 - 日志页自动滚动与级别筛选；
 - 深浅色 + 动态取色切换后检查颜色 role 是否全部跟随。
+
+## 6. 测试确定性（Robolectric + Compose）
+
+无限动画会让 Compose 永远不进入 idle，导致 Robolectric 测试挂起。处理方式：
+
+1. `ui/motion/LocalMotion.kt` 提供 `LocalInfiniteAnimationsEnabled`（默认 `true`，生产/Preview 行为不变）。
+   测试基类 `ComposeTestBase` 通过 `CompositionLocalProvider(LocalInfiniteAnimationsEnabled provides false)` 关闭：
+   - Home Hero 状态呼吸点（`rememberInfiniteTransition`）；
+   - 不确定进度指示器（Hero/RunControlButton 的 `CircularProgressIndicator`/`LinearProgressIndicator`，测试时改用确定值进度）。
+   **有限时长动画（本 spec 表中的所有 MD3 token 动画）仍全部开启并参与断言。**
+2. `OutlinedTextField` 聚焦后的 IME/光标闪烁同样是无限动画：Settings 代理端口 Dialog 在
+   `LocalInfiniteAnimationsEnabled = false` 时渲染只读端口文本（testTag 保持 `port-input`），
+   输入过滤/校验由纯函数 `normalizeProxyPortInput()` / `isValidProxyPort()` 的单测覆盖（`PortValidationTest`）。
+3. 导航/交互定位统一用 testTag，避免文案歧义（快捷操作文案与 NavigationBar label 重叠）：
+   `nav:<route>`、`logs-export-fab`、`rules-list`、`settings-list`、`home-list`、`rule-switch:<domain>` 等。
+4. 测试时钟保持 `autoAdvance = true`（`waitForIdle` 自动推进有限动画），不依赖手动 `advanceTimeBy`。
+5. 稳定性验证命令（102 个 UI 测试全绿）：
+   `powershell -NoProfile -File _script\gradle.ps1 :app:testDebugUnitTest --tests "dev.sidebike.app.ui.*"`
+

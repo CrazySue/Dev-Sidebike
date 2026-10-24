@@ -116,6 +116,9 @@ class HttpProxyServer(
     private val workerSeq = AtomicInteger(0)
     private val activeSockets: MutableSet<Socket> = Collections.newSetFromMap(ConcurrentHashMap<Socket, Boolean>())
 
+    /** Hosts already warned about the MIRROR_PROXY-without-MITM downgrade (avoid log spam per connection). */
+    private val warnedMirrorFallbackHosts: MutableSet<String> = Collections.newSetFromMap(ConcurrentHashMap<String, Boolean>())
+
     // ---- statistics (exposed to the engine via trafficSnapshot()) ----
     private val totalConnections = AtomicLong(0)
     private val successfulConnections = AtomicLong(0)
@@ -416,6 +419,19 @@ class HttpProxyServer(
                 "domain $host has a sni rewrite rule but MITM is disabled; falling back to a direct tunnel (SNI decoy cannot be applied)",
             )
         }
+        // MIRROR_PROXY needs TLS termination to be safe for CONNECT: tunnelling to the mirror host makes the
+        // client validate the MIRROR's certificate for the ORIGINAL hostname → certificate mismatch. When we
+        // could not MITM (MITM disabled or whitelisted) degrade to DIRECT so HTTPS keeps working, and say so.
+        if (plan.kind == RouteKind.MIRROR_PROXY) {
+            if (warnedMirrorFallbackHosts.add(host)) {
+                logger.warn(
+                    TAG,
+                    "domain $host has a mirror/proxy rule (${plan.connectHost}:${plan.connectPort}) but MITM is " +
+                        "disabled; falling back to a direct tunnel to keep TLS certificate valid",
+                )
+            }
+            return tunnel(client, RoutePlan(RouteKind.DIRECT, host, port, reason = "mirror-fallback-direct"))
+        }
         return tunnel(client, plan)
     }
 
@@ -461,11 +477,21 @@ class HttpProxyServer(
             )
             clientOut.flush()
             val idleTimeout = config.proxy.idleTimeoutMs
-            val relay = ByteRelay.relay(client, upstream.socket, idleTimeout) { message ->
-                logger.debug(TAG, "tunnel ${plan.connectHost}:${plan.connectPort}: $message")
-            }
+            // Live byte accounting: tunnels can stay open for a long time (keep-alive HTTPS), so counters are
+            // updated chunk-by-chunk instead of only when the tunnel closes (QA-009: traffic showed "0 B").
+            val relay = ByteRelay.relay(
+                client,
+                upstream.socket,
+                idleTimeout,
+                onError = { message -> logger.debug(TAG, "tunnel ${plan.connectHost}:${plan.connectPort}: $message") },
+                onBytes = { upDelta, downDelta ->
+                    if (upDelta > 0) bytesUp.addAndGet(upDelta)
+                    if (downDelta > 0) bytesDown.addAndGet(downDelta)
+                },
+            )
             if (relay.error != null) logger.debug(TAG, "tunnel closed with error: ${relay.error}")
-            return ProxyResult(relay.error == null, relay.bytesUp, relay.bytesDown, relay.error)
+            // Bytes were already added incrementally above (avoid double counting in record()).
+            return ProxyResult(relay.error == null, 0, 0, relay.error)
         } catch (e: IOException) {
             return ProxyResult(false, 0, 0, "tunnel I/O error: ${e.message}")
         } finally {

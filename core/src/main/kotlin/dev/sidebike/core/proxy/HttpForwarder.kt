@@ -426,9 +426,15 @@ object HttpResponses {
         val headers = synthetic.headers.copy()
         headers.set("Connection", "close")
         headers.remove("Transfer-Encoding")
-        headers.set("Content-Length", synthetic.body.size.toString())
+        val noBody = synthetic.status == 204 || synthetic.status == 304
+        if (noBody) {
+            // 204/304 responses must not carry a body nor a positive Content-Length.
+            headers.remove("Content-Length")
+        } else {
+            headers.set("Content-Length", synthetic.body.size.toString())
+        }
         HttpCodec.writeResponseHead(out, synthetic.status, "", headers)
-        if (!request.method.equals("HEAD", ignoreCase = true) && synthetic.status != 204 && synthetic.status != 304) {
+        if (!request.method.equals("HEAD", ignoreCase = true) && !noBody) {
             out.write(synthetic.body)
         }
         out.flush()

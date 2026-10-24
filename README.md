@@ -11,7 +11,8 @@
 
 它没有 Android 版本。**Dev-Sidebike** 把它的后端能力移植到 Android：
 
-- **后端**：用纯 Kotlin/JVM 重写 Dev-Sidecar 内核（DNS 解析层、规则引擎、HTTP/HTTPS 代理、CA/MITM、拦截器），模块边界与配置语义与上游对齐；不携带 Node.js 运行时，因此 **APK 与 ABI 无关**（arm64-v8a / armeabi-v7a / x86 / x86_64 均可运行）。
+- **后端**：用纯 Kotlin/JVM 重写 Dev-Sidecar 内核（DNS 解析层、规则引擎、HTTP/HTTPS 代理、CA/MITM、拦截器），模块边界与配置语义与上游对齐；不携带 Node.js 运行时，后端逻辑与 CPU 架构无关。
+- **ABI 说明**：Jetpack 传递依赖自带少量 `.so`（DataStore/GraphicsPath），因此 APK 仍按 ABI 打包。beta **交付物仅适配 arm64-v8a / armeabi-v7a**（符合项目要求）；**debug/测试 APK 额外包含 x86_64 / x86** 以便模拟器验收；其他架构可通过 `app/build.gradle.kts` 的 `ndk.abiFilters` 一行扩展。
 - **系统级接入**：`VpnService` 只接管 DNS（tun 内应答 `10.111.0.2:53`），对所有应用生效且**无需安装证书**；API 29+ 同时用 `VpnService.Builder.setHttpProxy()` 把本地 HTTP 代理注册为系统代理。
 - **增强模式**：开启 MITM（需用户安装本应用生成的 CA）后可用 `sni` 诱饵改写、镜像改写、响应替换等上游拦截器能力（Android 7+ 第三方应用默认不信任用户 CA，仅浏览器等部分应用受益）。
 - **前端**：Jetpack Compose + **严格 Material Design 3**（MD3 token、动态取色、深色模式），所有界面状态变化均使用 MD3 非线性运动曲线（emphasized/standard 缓动 + 时长 token）。
@@ -28,6 +29,21 @@
 | ECH、NAT64、overwall、git/node/pip 插件 | — | ❌ beta 不做，已在文档标注 |
 
 > 详细证据（源码行号 + 只读实测 + 逐条可移植性判定）见 [`docs/feasibility/01-dev-sidecar-analysis.md`](docs/feasibility/01-dev-sidecar-analysis.md)；独立复核与 Android 平台限制见 [`docs/feasibility/02-android-constraints.md`](docs/feasibility/02-android-constraints.md) 与 [`docs/feasibility/03-review-checklist.md`](docs/feasibility/03-review-checklist.md)。
+
+### 2.1 已在 Android 15 模拟器（API 35，x86_64 Play 镜像）实测通过
+
+| 验证项 | 结果 | 证据 |
+| --- | --- | --- |
+| VPN 启动/控制/E1 系统代理下发 | ✅ PASS | `dumpsys connectivity`：VPN `LinkProperties` 带 `HttpProxy: [127.0.0.1] 31181`；系统/第三方应用真实连接到本地代理（连接数增长） |
+| E2 DNS 防污染闭环 | ✅ PASS | `ping example.com` 解析成功；`ping github.com` → 真实 GitHub IP；`ping www.google.com` → 真实 Google IP（非投毒地址）；App DNS 查询计数增长、无 SERVFAIL |
+| 官方规则种子 | ✅ PASS | 规则页显示 **69 个域名 / 77 条路径规则**；预置 IP 61 域、DNS provider 9 个、国内域名 1237 条 |
+| 停止/进程死亡后网络恢复 | ✅ PASS | 停止 VPN 或 `force-stop` 后 `tun0` 消失，DNS/网络立即恢复 |
+| Private DNS / lockdown 环境检测 | ✅ PASS | 开启 Private DNS(DoT) / lockdown 时 UI 显示红色警告 |
+| 通知权限 | ✅ PASS | Android 13+ 首次启动运行时请求，授予后 VPN 通知可见 |
+| 后台存活（锁屏 10 分钟） | ⏳ 模拟器验证中 | 真机需按 `_script/qa/device_verify.md` 复验 |
+| MITM/CA（默认关闭） | ⏳ JVM 端到端测试中 | 需用户在真机安装 CA；仅部分应用信任用户 CA |
+
+> 截图与证据：`docs/qa/screenshots/`、`docs/qa/05-test-report.md`；真机验收清单：`_script/qa/device_verify.md`。
 
 ## 3. 快速开始（开发/构建）
 

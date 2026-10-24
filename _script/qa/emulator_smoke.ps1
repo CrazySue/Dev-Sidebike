@@ -149,9 +149,14 @@ if (Tap-Text '启动服务') {
     $null = Sh 'after-dns'
     # stop
     if (Tap-Text '停止服务') {
-        Start-Sleep -Seconds 4
-        $after = (Adb @('shell', 'dumpsys', 'connectivity'))
-        $tunGone = -not ($after -match 'InterfaceName: tun0')
+        # Teardown is asynchronous: poll up to 20s for tun0 to disappear instead of a fixed sleep.
+        $tunGone = $false
+        $deadline = (Get-Date).AddSeconds(20)
+        while ((Get-Date) -lt $deadline) {
+            Start-Sleep -Seconds 2
+            $after = (Adb @('shell', 'dumpsys', 'connectivity'))
+            if (-not ($after -match 'InterfaceName: tun0')) { $tunGone = $true; break }
+        }
         Add-Result 'SMK-03-stop-recovers' $tunGone 'tun0 removed after stop'
         $ip = Resolves 'example.com'
         Add-Result 'SMK-03-dns-after-stop' ($null -ne $ip) "example.com=$ip"

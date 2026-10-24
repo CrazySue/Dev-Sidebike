@@ -58,6 +58,7 @@ import dev.sidebike.app.ui.components.SectionHeader
 import dev.sidebike.app.ui.components.StatusPill
 import dev.sidebike.app.ui.components.mitmCaSettingsLabelRes
 import dev.sidebike.app.ui.components.mitmCaStatusOf
+import dev.sidebike.app.ui.motion.LocalInfiniteAnimationsEnabled
 import dev.sidebike.app.ui.motion.M3Motion
 import dev.sidebike.app.ui.theme.ThemeMode
 import dev.sidebike.core.api.DnsMode
@@ -504,6 +505,12 @@ private fun DnsProviderRow(
     }
 }
 
+/** 代理端口合法性（纯函数，供 UI 与单测共用）。 */
+fun isValidProxyPort(port: Int?): Boolean = port != null && port in 1024..65535
+
+/** 输入过滤：只保留数字并限制 5 位（纯函数，便于单测）。 */
+fun normalizeProxyPortInput(input: String): String = input.filter { it.isDigit() }.take(5)
+
 @Composable
 private fun PortDialog(
     currentPort: Int,
@@ -512,7 +519,7 @@ private fun PortDialog(
 ) {
     var portText by remember { mutableStateOf(currentPort.toString()) }
     val port = portText.toIntOrNull()
-    val valid = port != null && port in 1024..65535
+    val valid = isValidProxyPort(port)
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text(stringResource(R.string.port_dialog_title)) },
@@ -522,19 +529,30 @@ private fun PortDialog(
                     text = stringResource(R.string.port_dialog_desc),
                     style = MaterialTheme.typography.bodyMedium,
                 )
-                OutlinedTextField(
-                    value = portText,
-                    onValueChange = { input -> portText = input.filter { it.isDigit() }.take(5) },
-                    singleLine = true,
-                    isError = portText.isNotEmpty() && !valid,
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                    supportingText = {
-                        if (portText.isNotEmpty() && !valid) {
-                            Text(stringResource(R.string.port_invalid))
-                        }
-                    },
-                    modifier = Modifier.testTag("port-input"),
-                )
+                if (LocalInfiniteAnimationsEnabled.current) {
+                    OutlinedTextField(
+                        value = portText,
+                        onValueChange = { input -> portText = normalizeProxyPortInput(input) },
+                        singleLine = true,
+                        isError = portText.isNotEmpty() && !valid,
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                        supportingText = {
+                            if (portText.isNotEmpty() && !valid) {
+                                Text(stringResource(R.string.port_invalid))
+                            }
+                        },
+                        modifier = Modifier.testTag("port-input"),
+                    )
+                } else {
+                    // 测试/静态渲染（LocalInfiniteAnimationsEnabled=false）：TextInput 的 IME/光标
+                    // 无限动画会让 Robolectric 永远无法 idle，改用只读文本渲染端口值。
+                    Text(
+                        text = portText,
+                        style = MaterialTheme.typography.headlineSmall,
+                        color = MaterialTheme.colorScheme.onSurface,
+                        modifier = Modifier.testTag("port-input"),
+                    )
+                }
             }
         },
         confirmButton = {

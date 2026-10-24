@@ -37,9 +37,17 @@ interface UpstreamConnector {
 /**
  * Upstream connector with the same layered resolution order as upstream Dev-Sidecar's
  * `dnsLookup.createLookupFunc` (mitmproxy/src/lib/proxy/mitmproxy/dnsLookup.js):
- * preset IP list -> configured DnsResolver -> system resolver fallback. The IP is then dialled directly,
- * which is the whole point of the built-in anti-poisoning DNS layer (the runtime has no system DNS hook on
- * Android).
+ * preset IP list -> configured [DnsResolver] -> clear failure. The IP is then dialled directly, which is
+ * the whole point of the built-in anti-poisoning DNS layer.
+ *
+ * Deliberately NO system-resolver fallback: under the Android VPN the system DNS is our own tun responder
+ * (`10.111.0.2`), so falling back to `InetAddress.getByName(host)` for outbound targets risks a resolution
+ * loop (plus a poisoned answer bypassing the anti-poisoning layer). IP-literal targets never touch DNS.
+ *
+ * Upstream TLS certificate verification: `mitm.trustUpstreamAll` defaults to true, matching upstream
+ * Dev-Sidecar, where every decoy-SNI rule switches to `unVerifySsl` (`sni.js:23-27`). This is an intentional
+ * beta trade-off: decoy SNI cannot work with certificate pinning/verification. The trust-all client context
+ * exists only for such rule-scoped upstream legs, never for the app's own connections.
  */
 class DefaultUpstreamConnector(
     private val configProvider: () -> SidebikeConfig,
@@ -76,9 +84,21 @@ class DefaultUpstreamConnector(
         }
     }
 
+    /**
+     * Resolves the dial target without ever falling back to the system resolver.
+     *
+     * Under the Android VPN the system resolver IS our own tun DNS (`10.111.0.2`), so an
+     * `InetAddress.getByName(target)` fallback here would re-enter the proxy/VPN and could loop or resolve a
+     * poisoned answer. Order (upstream `dnsLookup.createLookupFunc` semantics):
+     *   1. IP-literal targets are dialled as-is;
+     *   2. `preSetIpList` entries win;
+     *   3. the configured [DnsResolver] (anti-poisoning UDP/DoT/DoH providers + cache);
+     *   4. otherwise fail clearly - the caller turns this into a 502/400 response.
+     */
     private fun resolveDialTarget(host: String, config: SidebikeConfig): String {
+        // 1) literal IP: no DNS involved at all (`InetSocketAddress` only parses it, never resolves).
         if (NetUtils.isIpLiteral(host)) return host
-        // 1) preset IP list wins (upstream `DNSOverPreSetIpList`).
+        // 2) preset IP list.
         val presets = try {
             presetIpProvider(host)
         } catch (e: Exception) {
@@ -86,17 +106,20 @@ class DefaultUpstreamConnector(
             emptyList()
         }
         if (presets.isNotEmpty()) return presets.first()
-        // 2) configured DnsResolver (anti-poisoning UDP/DoH/DoT providers, cached by the resolver).
+        // 3) configured DnsResolver (anti-poisoning UDP/DoH/DoT providers, cached by the resolver).
         val resolved = try {
             runBlocking {
                 withTimeout(config.dns.queryTimeoutMs.toLong().coerceAtLeast(1L)) { dnsResolver.resolve(host) }
             }.ips.firstOrNull()
         } catch (e: Exception) {
-            logger.debug(TAG, "dns resolve failed for $host, falling back to system resolver: ${e.message}")
+            logger.debug(TAG, "dns resolve failed for $host: ${e.message}")
             null
-        }
-        // 3) system resolver fallback: InetSocketAddress(host) resolves at connect time.
-        return resolved ?: host
+        } ?: throw IOException(
+            "DNS resolution failed for '$host' (configured resolver returned no IP; refusing system-DNS " +
+                "fallback to avoid VPN DNS recursion)",
+        )
+        // 4) resolved by the configured provider.
+        return resolved
     }
 
     companion object {

@@ -365,12 +365,39 @@ class HttpProxyServerTest {
         assertTrue(echo.received.size() >= 20)
         awaitCondition { results.size == 1 }
         assertTrue(results[0].success)
-        assertTrue("bytesUp should count tunnelled bytes", results[0].bytesUp >= 20)
+        assertTrue("tunnel bytes must be counted live in the snapshot", proxy.trafficSnapshot().bytesUp >= 20)
+        assertTrue("tunnel bytes must be counted live in the snapshot", proxy.trafficSnapshot().bytesDown >= 20)
     }
 
     @Test
-    fun connectWithSniActionAndMitmDisabledFallsBackToDirectTunnel() {
-        val echo = TestEchoServer().track()
+    fun connectMirrorRuleWithMitmDisabledFallsBackToOriginalHost() {
+        // A mirror rule tunnels to the mirror host, but the client still validates the ORIGINAL hostname
+        // certificate: without MITM this breaks TLS. The proxy must degrade to DIRECT (original target).
+        val original = TestEchoServer().track()
+        val mirror = TestEchoServer().track()
+        val action = intercept("""{"proxy":"127.0.0.1"}""")
+        val ruleEngine = TestRuleEngine(planner = { _, _, _ ->
+            RoutePlan(RouteKind.MIRROR_PROXY, "127.0.0.1", mirror.port, action = action, reason = "proxy")
+        })
+        val proxy = newProxy(ruleEngine, config = TestConfigs.baseConfig(mitmEnabled = false))
+
+        RawHttpClient.connect(proxy.port).use { socket ->
+            socket.getOutputStream().write("CONNECT 127.0.0.1:${original.port} HTTP/1.1\r\n\r\n".toByteArray())
+            socket.getOutputStream().flush()
+            assertEquals(200, HttpCodec.readResponseHead(socket.getInputStream()).status)
+            socket.getOutputStream().write("mirror-check".toByteArray())
+            socket.getOutputStream().flush()
+            assertArrayEquals("mirror-check".toByteArray(), socket.getInputStream().readNBytes(12))
+        }
+        assertTrue("original target must receive the tunnel", original.received.size() >= 12)
+        assertEquals("mirror must not be contacted without MITM", 0, mirror.received.size())
+        assertTrue(
+            "expected a mirror-fallback warning in the log",
+            logger.messages.any { (_, text) -> text.contains("mirror", ignoreCase = true) },
+        )
+    }
+    @Test
+    fun connectWithSniActionAndMitmDisabledFallsBackToDirectTunnel() {        val echo = TestEchoServer().track()
         val action = intercept("""{"sni":"baidu.com"}""")
         val ruleEngine = TestRuleEngine(
             planner = { _, _, _ -> RoutePlan(RouteKind.DIRECT, "127.0.0.1", echo.port, sni = "baidu.com", action = action, reason = "sni") },
@@ -556,5 +583,75 @@ class HttpProxyServerTest {
         RawHttpClient.request(proxy.port, "GET", "http://callback.test:${upstream.port}/x")
         awaitCondition { receivedHost.get() != null }
         assertEquals("callback.test", receivedHost.get())
+    }
+
+    @Test
+    fun headRequestForwardsHeadersWithoutBody() {
+        val upstream = TestHttpServer { textResponse(200, "body-should-not-be-sent", "text/html") }.track()
+        val ruleEngine = TestRuleEngine(planner = { _, _, _ -> RoutePlan(RouteKind.DIRECT, "127.0.0.1", upstream.port) })
+        val proxy = newProxy(ruleEngine)
+        RawHttpClient.connect(proxy.port).use { socket ->
+            socket.getOutputStream().write(
+                ("HEAD http://127.0.0.1:${upstream.port}/head HTTP/1.1\r\n" +
+                    "Host: 127.0.0.1:${upstream.port}\r\nConnection: close\r\n\r\n").toByteArray(),
+            )
+            socket.getOutputStream().flush()
+            val response = RawHttpClient.readResponse(socket.getInputStream(), "HEAD")
+            assertEquals(200, response.status)
+            assertEquals(0, response.body.size)
+            assertNotNull(RawHttpClient.header(response, "Content-Length"))
+            assertEquals("HEAD", upstream.requests[0].method)
+        }
+    }
+
+    @Test
+    fun expect100ContinueIsAcknowledgedBeforeBodyIsForwarded() {
+        val upstream = TestHttpServer { request -> textResponse(200, "got:${request.body.size}") }.track()
+        val ruleEngine = TestRuleEngine(planner = { _, _, _ -> RoutePlan(RouteKind.DIRECT, "127.0.0.1", upstream.port) })
+        val proxy = newProxy(ruleEngine)
+        RawHttpClient.connect(proxy.port).use { socket ->
+            val out = socket.getOutputStream()
+            out.write(
+                ("POST http://127.0.0.1:${upstream.port}/upload HTTP/1.1\r\n" +
+                    "Host: 127.0.0.1:${upstream.port}\r\nContent-Length: 5\r\n" +
+                    "Expect: 100-continue\r\nConnection: close\r\n\r\n").toByteArray(),
+            )
+            out.flush()
+            val input = socket.getInputStream()
+            assertEquals("HTTP/1.1 100 Continue", HttpCodec.readLine(input))
+            assertEquals("", HttpCodec.readLine(input))
+            out.write("hello".toByteArray())
+            out.flush()
+            val response = RawHttpClient.readResponse(input)
+            assertEquals(200, response.status)
+            assertEquals("got:5", RawHttpClient.requestBodyText(response))
+        }
+    }
+
+    @Test
+    fun stopLeavesNoProxyOrRelayThreadsBehind() {
+        val echo = TestEchoServer().track()
+        val ruleEngine = TestRuleEngine(planner = { _, _, _ -> RoutePlan(RouteKind.DIRECT, "127.0.0.1", echo.port) })
+        val proxy = newProxy(ruleEngine)
+        // Exercise both a worker (plain HTTP) and a relay (CONNECT tunnel) path before stopping.
+        val upstream = TestHttpServer { textResponse(200, "x") }.track()
+        val plainRuleEngine = TestRuleEngine(planner = { _, _, _ -> RoutePlan(RouteKind.DIRECT, "127.0.0.1", upstream.port) })
+        val plainProxy = newProxy(plainRuleEngine)
+        RawHttpClient.request(plainProxy.port, "GET", "http://127.0.0.1:${upstream.port}/t")
+        RawHttpClient.connect(proxy.port).use { socket ->
+            socket.getOutputStream().write("CONNECT t.test:443 HTTP/1.1\r\n\r\n".toByteArray())
+            socket.getOutputStream().flush()
+            assertEquals(200, HttpCodec.readResponseHead(socket.getInputStream()).status)
+            socket.getOutputStream().write("a".toByteArray())
+            socket.getOutputStream().flush()
+            socket.getInputStream().read()
+        }
+        plainProxy.stop()
+        proxy.stop()
+        awaitCondition(5000) {
+            Thread.getAllStackTraces().keys.none { thread ->
+                thread.isAlive && (thread.name.startsWith("ds-proxy") || thread.name.startsWith("ds-relay"))
+            }
+        }
     }
 }

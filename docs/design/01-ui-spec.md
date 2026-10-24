@@ -91,7 +91,7 @@ MD3 NavigationBar 推荐 3–5 个 destination，本应用正好 5 个（全部�
 
 - 字节统计：`UiFormat.bytesOrDash()` —— 有连接但字节为 0 时显示 `—`（未知），避免误报 `0 B`。
 - 统计数字统一用 `AnimatedCounterText`（Long 滚动动画）。
-- 通知权限（Android 13+）：`SidebikeRoot` 首次进入非阻塞请求；被拒绝时 Home 显示「通知权限未授予」横幅 + 「允许通知」重试按钮（VPN 前台通知/停止操作依赖该权限）。
+- 通知权限（Android 13+）：`MainActivity` 调用 android-dev 的 `NotificationPermission.ensureRequested(this)` 发起首次请求；`SidebikeRoot` 在 `ON_RESUME` 用 `NotificationPermission.isGranted(context)` 刷新状态，被拒绝时 Home 显示「通知权限未授予」横幅 + 「允许通知」重试按钮（VPN 前台通知/停止操作依赖该权限，QA-002）。
 
 
 ## 5. 关键实现约定

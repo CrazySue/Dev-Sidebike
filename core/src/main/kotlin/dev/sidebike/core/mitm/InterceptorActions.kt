@@ -70,7 +70,8 @@ object InterceptorActions {
             val body = "DevSidecar $status: Request success.\n\n" +
                 "  This request is matched by success intercept.\n\n" +
                 "  因配置success拦截器，本请求直接返回${status}成功。"
-            return SyntheticResponse(status, headers, body.toByteArray(StandardCharsets.UTF_8))
+            val bytes = if (status == 204 || status == 304) ByteArray(0) else body.toByteArray(StandardCharsets.UTF_8)
+            return SyntheticResponse(status, headers, bytes)
         }
 
         val response = success as? JsonObject ?: return null
