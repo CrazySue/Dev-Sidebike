@@ -33,7 +33,7 @@ Run-Gate 'md3-audit' $ps @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', 
 if ($Apk) {
     $apkArgs = @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', $apkCheck, '-Apk', $Apk)
     if (-not $Release) { $apkArgs += '-ExpectDebuggable' }
-    else { $apkArgs += '-ExpectNoNative' }
+    else { $apkArgs += '-ExpectArmOnly' }  # beta delivery stance: release is ARM-only by design
     Run-Gate 'apk-check' $ps $apkArgs
 }
 if ($WithUnitTests) {

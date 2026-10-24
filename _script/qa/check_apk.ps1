@@ -12,6 +12,7 @@ param(
     [string]$Root = 'E:\WorkSpace\Dev-Sidebike',
     [switch]$ExpectDebuggable,
     [switch]$ExpectNoNative,
+    [switch]$ExpectArmOnly,
     [switch]$Json
 )
 $ErrorActionPreference = 'Stop'
@@ -96,12 +97,25 @@ if (-not $ExpectDebuggable -and $isDebuggable) { Add-Problem "expected debuggabl
 Add-Info "debuggable=$isDebuggable (expected=$($ExpectDebuggable.IsPresent))"
 
 # ---- ABI story ----
-$native = [regex]::Match($badging, "native-code:\s*'([^']*)'")
-$hasNative = $native.Success -and $native.Groups[1].Value.Trim().Length -gt 0
-if ($ExpectNoNative -and $hasNative) {
-    Add-Problem "expected pure-JVM APK (no .so) but native-code=$($native.Groups[1].Value)"
-} else {
-    if ($hasNative) { Add-Info "native-code=$($native.Groups[1].Value)" } else { Add-Info "no native libs (ABI-neutral, all ABIs supported)" }
+# Beta delivery stance (approved): release ships ARM-only (arm64-v8a + armeabi-v7a) because the
+# backend logic is ABI-independent but transitive Jetpack .so deps are arm-only; other ABIs are one
+# Gradle property away. So native libs are EXPECTED for release; verify the exact ABI set instead of
+# forbidding them.
+$nativeLine = (($badging -split "`n") | Where-Object { $_ -match '^native-code:' } | Select-Object -First 1)
+$nativeAbis = @()
+if ($nativeLine) { $nativeAbis = @([regex]::Matches($nativeLine, "'([^']+)'") | ForEach-Object { $_.Groups[1].Value }) }
+$nativeList = ($nativeAbis -join ', ')
+if ($nativeAbis.Count -gt 0) { Add-Info "native-code=$nativeList" } else { Add-Info "no native libs (ABI-neutral, all ABIs supported)" }
+if ($ExpectNoNative -and $nativeAbis.Count -gt 0) {
+    Add-Problem "expected pure-JVM APK (no .so) but native-code=$nativeList"
+}
+if ($ExpectArmOnly) {
+    $expectedAbis = @('arm64-v8a', 'armeabi-v7a')
+    $missing = @($expectedAbis | Where-Object { $nativeAbis -notcontains $_ })
+    $extra = @($nativeAbis | Where-Object { $expectedAbis -notcontains $_ })
+    if ($missing.Count -gt 0) { Add-Problem "release ABI missing: $($missing -join ', ') (got: $nativeList)" }
+    elseif ($extra.Count -gt 0) { Add-Problem "release ABI has unexpected entries: $($extra -join ', ') (got: $nativeList)" }
+    else { Add-Info "release ABI set OK (arm64-v8a + armeabi-v7a)" }
 }
 
 # ---- manifest structure (VpnService / FGS / always-on) ----

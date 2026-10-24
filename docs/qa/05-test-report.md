@@ -244,3 +244,52 @@ QA 包当前测试：`VpnCodecFuzzTest` 8 个用例（默认套件中运行，�
 `_script/qa/emulator_smoke.ps1 -Apk out/dev/app-debug.apk -SkipInstall` → **9/9 PASS, 0 failed**：
 install → app-launch（COLD 12.4s，模拟器）→ vpn-established（VPN CONNECTED + tun0）→ E1-system-proxy-registered（`HttpProxy: [127.0.0.1] 31181`）→ E2-vpn-dns-configured（10.111.0.2）→ E2-dns-resolution（example.com=104.20.23.154；github.com=20.200.245.247）→ E2d-rules-seeded → SMK-03-stop-recovers（tun0 20s 轮询消失）→ SMK-03-dns-after-stop（解析恢复）。
 证据：`docs/qa/evidence/smoke-20261025-051519.log` + 5 张 PNG。该脚本可作为 owner/未来回归的标准验收入口。
+
+## 17. 最终 Release 验收（2026-10-25 05:27，dist 产物）
+
+### 交付物门禁（check_delivery.ps1 → PASS）
+| 项 | 结果 |
+| --- | --- |
+| release APK | `dist/Dev-Sidebike-0.1.0-beta.1-release.apk`（14.67 MB，sha256 `cdbf5a022c6269647af6a2217784658058029a3b3c2ef5d9927065a77f359108`） |
+| debug APK | `dist/Dev-Sidebike-0.1.0-beta.1-debug.apk`（21.13 MB，sha256 `f8127d78c950dee5949f5ed5a8bd202f1bea4914f6209a1d242cd26dc4b889b1`） |
+| SHA256SUMS.txt | 两条记录逐一复核 **一致** |
+| delivery-manifest.json | version=0.1.0-beta.1、gitSha=**09e3696**、sha256 两个 APK 均 **一致** |
+| README.md / TEST-REPORT.md | 存在且非空 |
+| check_apk -Release | **PASS**：package=dev.sidebike.app（无 debug 后缀）、versionCode=1、versionName=0.1.0-beta.1、debuggable=**false**、minSdk=26、targetSdk=35、native-code=**arm64-v8a+armeabi-v7a**（符合 ARM-only 交付口径）、INTERNET/FOREGROUND_SERVICE/POST_NOTIFICATIONS/RECEIVE_BOOT_COMPLETED、无 WRITE_SECURE_SETTINGS、BIND_VPN_SERVICE+VpnService action+foregroundServiceType(specialUse)+always-on meta-data+NSC trust user CA |
+
+### Release APK 真机（模拟器 API35）验证
+- 安装/启动/通知权限/VPN 授权：✅（release 包首次安装弹 VPN 授权，OK 后 RUNNING；`pm grant POST_NOTIFICATIONS` 后通知 channel importance=DEFAULT）
+- E1：`dumpsys connectivity` VPN LinkProperties **`HttpProxy: [127.0.0.1] 31181`** + `DnsAddresses [10.111.0.2]` ✅
+- E2：`ping github.com` → **20.200.245.247**（真实 IP，防污染）✅
+- 代理功能实测：`nc 127.0.0.1 31181` 发 `GET http://example.com/` → **HTTP/1.1 200 OK**；`CONNECT example.com:443` → **200 Connection Established** ✅
+- **QA-009（bytes=0）→ 已修复/关闭**：release 包统计显示 **上行流量 621 B / 下行流量 2.3 KB**（连接总数 24、DNS 5）✅
+- 停止服务：tun0 消失、DNS 恢复正常（example.com 解析成功）✅
+- 证据：`docs/qa/evidence/release_dumpsys-connectivity.txt`、`docs/qa/screenshots/release_{running,stats,stopped}.png`
+
+### 最终验收矩阵（G1–G12）
+| Gate | 状态 | 证据 |
+| --- | --- | --- |
+| G1 构建/单测/流水线 | ✅ **PASS** | pipeline all：core 174/0/1 skipped；app 181/0/2 skipped；静态 gates 全绿 |
+| G2 安装/启动/五屏 | ✅ PASS | 模拟器 + release 包安装启动；真 PNG 截图 38+ |
+| G3 VPN/通知 | ✅ PASS | RUNNING/ERROR/停止状态机；权限齐全；通知可见（importance=DEFAULT） |
+| G4 系统代理闭环 | ✅ PASS | release dumpsys HttpProxy + 代理真实请求 200 + 连接计数 |
+| G5 DNS 闭环 | ✅ PASS | 解析/防污染（20.200.245.247）/Private DNS 警告 |
+| G6 失败安全 | ✅ PASS | stop/force-stop/KILL_PROXY/CRASH_ENGINE 全部自动 teardown + 网络恢复 + 可重启 |
+| G7 FGS 合规 | ✅ PASS | specialUse + always-on meta-data + 实跑无异常 |
+| G8 边界诚实 | ✅ PASS | 02/03/README 口径：ARM-only、MITM 默认关、API29+ 系统代理、MIUI 引导 |
+| G9 MITM/CA | ⚠️ 未实测（默认关闭，非 beta 阻塞） | CA/MITM 代码与单测在 core（MITM/CA 20 tests PASS）；真机 CA 安装+Chrome MITM 属 owner/后续 |
+| G10 后台存活 | 🟡 模拟器 PASS；真机 M5 待 owner | 前台服务+always-on 静态/模拟器验证；MIUI/HyperOS 需真机复验 |
+| G11 性能 | ✅ PASS（模拟器） | release 冷启 ~4.7s、debug 冷启 ~12.4s（首启 dex）；DNS 解析正常；空闲无异常 |
+| G12 静态合规 | ✅ PASS | audit_md3 PASS；check_apk PASS；requirements 46/46；build-info/sha256 一致 |
+
+### 已知问题（随交付说明，均非阻塞）
+1. QA-010（S3）：tun 偶发 `忽略 tun 数据包: not-ipv4-or-malformed` debug 日志；不影响 DNS/代理，建议后续加 reason 计数器。
+2. MITM/CA 未做真机端到端（默认关闭；Chrome 信任用户 CA 有源码证据，但未在真机走完安装+拦截流程）。
+3. MIUI/HyperOS 后台存活、Private DNS/lockdown 真实系统组合、系统代理在真实运营商网络下的行为 → 需 owner 按 `_script/qa/device_verify.md` M1–M6 复验。
+4. API 26–28 设备无系统 HTTP 代理能力（仅 DNS 模式），UI 已提示；交付说明已注明。
+
+### 最终 QA 结论
+**Dev-Sidebike 0.1.0-beta.1 判定：QA 有条件通过（release gate PASS）。** 在 Android 15 (API 35) 模拟器上，交付 APK 的安装/启动/VPN 授权/前台服务/DNS 防污染/系统 HTTP 代理下发/规则种子(69 域名/77 路径)/代理真实请求(HTTP 200 + CONNECT 200)/统计字节/DNS fail-safe/停止与故障恢复全部通过，静态门禁与三环境 pipeline 全绿，dist 产物哈希/manifest 一致可交付。剩余风险均为"环境/真机差异"类（MIUI 保活、Private DNS/lockdown 组合、MITM 默认关闭），已写入交付说明与 owner 手机 M1–M6 清单；**不阻塞 beta 交付，但 owner 首次真机验收应优先跑 M1（系统代理是否生效）与 M5（MIUI 存活）**。
+
+### 门禁工具修正（05:29）
+`run_qa_tests.ps1 -Release` 曾把 `-ExpectNoNative` 传给 `check_apk`（与"beta release 故意 ARM-only"的交付口径冲突）。已修正：新增 `check_apk -ExpectArmOnly`，release 模式下断言 native-code 恰为 `arm64-v8a + armeabi-v7a`（多余/缺失都失败）。最终运行：`run_qa_tests.ps1 -Apk dist/...release.apk -Release` → **requirements PASS / md3-audit PASS / apk-check PASS / ALL QA GATES PASS**。

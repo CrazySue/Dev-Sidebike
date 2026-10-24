@@ -73,6 +73,17 @@
 | 独立真实网络 JVM E2E | PASS：config 371ms / engine.start 321ms / 真实上游 DNS（preset、DoH、TTL）/ CONNECT+真实 TLS（github、tencent）/ stop 后 4ms 释放端口；APK 内 `rules.json` 40KB 与源码一致 |
 | 代码质量扫描 | 无 `TODO()` 生产炸弹；DNS provider 无系统 resolver 自举；代理仅监听 127.0.0.1；debug 故障注入仅存在于 debug source set；无密钥/CA 私钥日志泄漏 |
 
+### 4.1 QA 独立发布门禁（release APK）
+
+| 项 | 结果 |
+| --- | --- |
+| `check_delivery.ps1` | **PASS**：6 个交付物齐全；SHA256SUMS 逐项一致；manifest version/gitSha/两 APK sha256 一致 |
+| Release APK 独立校验 | **PASS**：`dev.sidebike.app` / 0.1.0-beta.1 / debuggable=**false** / minSdk26 / targetSdk35 / ARM 双 ABI / 权限与 VPN 声明 / NSC(user CA) 合规 |
+| Release APK 真机实测（模拟器 API35） | **PASS**：安装→VPN 授权→E1 系统代理注册→E2 DNS 防污染（github 真实 IP）→HTTP `GET` 返回 200 / `CONNECT` 返回 200→统计字节（上行 621B/下行 2.3KB，QA-009 已关闭）→停止后 tun0 消失、DNS 恢复 |
+| 失败安全 | **PASS**：stop / force-stop / KILL_PROXY / CRASH_ENGINE 均自动恢复网络且可重启（E5/E5b） |
+| G1–G12 验收矩阵 | G1–G8、G11、G12 ✅；G9 MITM 真机端到端未做（默认关闭，core MITM/CA 20 单测 PASS，非阻塞）；G10 模拟器后台 PASS、真机 MIUI 待 owner M5 |
+| **QA 最终结论** | **有条件通过（release gate PASS）**，条件仅为环境类未测项（MIUI/HyperOS 后台策略、Private DNS/lockdown 真机组合、MITM 默认关闭），已写入交付说明与 owner 真机清单（`_script/qa/device_verify.md`）。完整矩阵见 `docs/qa/05-test-report.md` §17。 |
+
 ---
 
 ## 5. 已知限制（诚实边界）
