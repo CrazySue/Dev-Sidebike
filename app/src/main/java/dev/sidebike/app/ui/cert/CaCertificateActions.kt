@@ -21,14 +21,20 @@ object CaCertificateActions {
 
     private const val CA_ALIAS = "Dev-Sidebike CA"
 
-    /** 去掉 PEM armor 并 Base64 解码为 DER；非法输入返回 null。 */
+    private val BASE64_ALPHABET: Set<Char> =
+        ('A'..'Z') + ('a'..'z') + ('0'..'9') + setOf('+', '/', '=')
+
+    /** 去掉 PEM armor 并 Base64 解码为 DER；非法输入（非 Base64 / 非 DER SEQUENCE）返回 null。 */
     fun parseDer(pem: String): ByteArray? {
         val body = pem.lineSequence()
             .filterNot { line -> line.trim().startsWith("-----") }
             .joinToString(separator = "")
             .filterNot { it.isWhitespace() }
-        if (body.isEmpty()) return null
-        return runCatching { Base64.decode(body, Base64.DEFAULT) }.getOrNull()
+        if (body.isEmpty() || body.any { it !in BASE64_ALPHABET }) return null
+        val der = runCatching { Base64.decode(body, Base64.DEFAULT) }.getOrNull() ?: return null
+        // X.509 DER 顶层是 ASN.1 SEQUENCE（0x30），长度至少 4 字节；用于拒绝任意字符串
+        if (der.size < 4 || der[0] != 0x30.toByte()) return null
+        return der
     }
 
     /** 解析 PEM 为 X509 证书；非法输入返回 null。 */

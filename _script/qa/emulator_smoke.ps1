@@ -102,6 +102,13 @@ if (-not $SkipInstall -and $Apk -and (Test-Path $Apk)) {
     Add-Result 'apk-install' ($SkipInstall -or -not $Apk) "(skipped; apk='$Apk')"
 }
 
+# API 33+: the app requests POST_NOTIFICATIONS on first launch. Grant it from adb (shell holds
+# GRANT_RUNTIME_PERMISSIONS via pm) so the system permission dialog never blocks UI automation.
+$null = (Adb @('shell', 'pm', 'grant', $Package, 'android.permission.POST_NOTIFICATIONS'))
+Log ('[perm] POST_NOTIFICATIONS grant attempted')
+$null = (Adb @('shell', 'am', 'force-stop', $Package))
+Start-Sleep -Seconds 1
+
 $start = (Adb @('shell', 'am', 'start', '-W', '-n', $Activity))
 Add-Result 'app-launch' ($start -match 'Activity' -or $start -match 'Warning') $start.Trim()
 Start-Sleep -Seconds 4

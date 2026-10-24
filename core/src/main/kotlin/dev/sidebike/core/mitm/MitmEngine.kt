@@ -5,6 +5,7 @@ import dev.sidebike.core.api.SidebikeConfig
 import dev.sidebike.core.api.SidebikeLogger
 import dev.sidebike.core.cert.CaStore
 import dev.sidebike.core.cert.ServerTls
+import dev.sidebike.core.cert.SniCapture
 import dev.sidebike.core.cert.TlsSupport
 import dev.sidebike.core.proxy.HttpForwarder
 import dev.sidebike.core.proxy.HttpResponses
@@ -83,10 +84,13 @@ class MitmEngine(
         var ssl: SSLSocket? = null
         try {
             val tls = serverTls()
-            ssl = TlsSupport.wrapServerSocket(tls.context, client, targetHost, targetPort)
+            // Observe the ClientHello SNI through an SNIMatcher (portable on JVM + Android); the key manager
+            // issues the leaf for the SNI name and falls back to the CONNECT authority when no SNI is sent.
+            val sniCapture = SniCapture()
+            ssl = TlsSupport.wrapServerSocket(tls.context, client, targetHost, targetPort, sniCapture)
             ssl.soTimeout = config.proxy.readTimeoutMs
             try {
-                tls.keyManager.withFallbackHost(targetHost) { ssl.startHandshake() }
+                tls.keyManager.withHandshakeContext(targetHost, sniCapture) { ssl.startHandshake() }
             } catch (e: SSLException) {
                 // Most common cause: the client does not trust the local CA (expected when the user has not
                 // installed it) or a non-TLS protocol was sent to an intercepted port. Nothing can be
@@ -94,6 +98,7 @@ class MitmEngine(
                 logger.debug(TAG, "TLS handshake with client failed for $targetHost:$targetPort: ${e.message}")
                 return MitmResult(false, 0, 0, "client TLS handshake failed: ${e.message}")
             }
+            logger.debug(TAG, "MITM TLS established: connect=$targetHost, sni=${sniCapture.sni ?: "(none)"}")
 
             val countingIn = CountingInputStream(ssl.inputStream)
             val countingOut = CountingOutputStream(ssl.outputStream)

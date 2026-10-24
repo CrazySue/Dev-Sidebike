@@ -2,26 +2,24 @@ package dev.sidebike.app.ui
 
 import android.Manifest
 import android.app.Activity
-import android.content.pm.PackageManager
 import android.net.VpnService
 import android.os.Build
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
-import androidx.core.content.ContextCompat
 import androidx.core.view.WindowCompat
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LifecycleEventEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import dev.sidebike.app.data.NotificationPermission
 import dev.sidebike.app.ui.theme.SidebikeTheme
 import dev.sidebike.app.ui.theme.resolveDarkTheme
 
@@ -59,38 +57,30 @@ fun SidebikeRoot(viewModel: SidebikeViewModel) {
             }
         }
 
-        // Android 13+ 通知权限：非阻塞，首次进入请求一次；被拒绝时首页提供重试入口。
-        var notificationPermissionDenied by rememberSaveable { mutableStateOf(false) }
+        // Android 13+ 通知权限：MainActivity 已通过 NotificationPermission.ensureRequested() 发起首次请求；
+        // 这里只负责「被拒绝后的重试」与状态展示（VPN 前台通知的「停止」动作依赖该权限）。
+        var notificationsGranted by remember { mutableStateOf(NotificationPermission.isGranted(context)) }
         val notificationPermissionLauncher = rememberLauncherForActivityResult(
             contract = ActivityResultContracts.RequestPermission(),
         ) { granted ->
-            notificationPermissionDenied = !granted
-        }
-        val notificationsGranted = Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU ||
-            ContextCompat.checkSelfPermission(
-                context,
-                Manifest.permission.POST_NOTIFICATIONS,
-            ) == PackageManager.PERMISSION_GRANTED
-        LaunchedEffect(Unit) {
-            if (!notificationsGranted) {
-                notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
-            }
+            notificationsGranted = granted
         }
         val requestNotificationPermission: () -> Unit = {
-            if (!notificationsGranted) {
+            if (!notificationsGranted && Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
                 notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
             }
         }
 
-        // 从系统「安装证书」界面返回时自动重新检测 CA 安装状态。
+        // 从系统「安装证书」界面返回时自动重新检测 CA 安装状态；同时刷新通知权限状态。
         LifecycleEventEffect(Lifecycle.Event.ON_RESUME) {
             viewModel.refreshCaInstalled()
+            notificationsGranted = NotificationPermission.isGranted(context)
         }
 
         SidebikeApp(
             viewModel = viewModel,
             requestStart = requestStart,
-            notificationsDenied = notificationPermissionDenied && !notificationsGranted,
+            notificationsDenied = !notificationsGranted,
             onRequestNotificationPermission = requestNotificationPermission,
         )
     }

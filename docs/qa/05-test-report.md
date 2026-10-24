@@ -113,3 +113,40 @@ NetworkAgentInfo{network{102} ni{VPN CONNECTED extra: VPN:dev.sidebike.app.debug
 | TOOL-03 | E5 kill-proxy 故障注入钩子 `am start-foreground-service ... VPN_DEBUG_FAULT` 因 service `exported=false` 被拒（adb shell uid 2000 无法访问；`run-as` 同样失败） | ⏳ 待 android-dev 增加 debug-only exported 入口（或改用 broadcast receiver）后重测 |
 | TOOL-04 | 模拟器 x86_64 google_apis_playstore 镜像 abilist 含 arm64-v8a（ARM 原生桥），故 ARM-only APK 也可安装；但 UI/性能与真机有差异，最终仍需 owner 真机 M1/M2 | 已知限制 |
 
+
+## 7. E2 复测结果（DNS-capable APK，2026-10-25 04:58）
+
+**判定：✅ PASS**（APK sha256 feefac97… / git dbb23d3 / 4 ABI）
+
+| 检查 | 结果 | 证据 |
+| --- | --- | --- |
+| (a) 域名解析 | ✅ | `adb shell ping -c1 example.com` → `104.20.23.154` |
+| (b) DNS 拦截/统计 | ✅ | App 统计 DNS 查询=8（增长）；日志页无 "temporary resolver"/SERVFAIL/`resolveRawQuery unavailable` |
+| (c) 防污染 | ✅ | `ping github.com` → **20.200.245.247**（真实 GitHub 段；无 VPN 基线 20.205.243.166）；`ping www.google.com` → **142.251.189.206**（真实 Google IP，非投毒） |
+| (d) 规则种子 | ✅ | Rules 页 `共 69 个域名 · 77 条路径规则`（QA-004 修复） |
+| (e) 代理全链路归属 | ✅ | App 日志：`proxy WARN domain firebaseinstallations.googleapis.com has a sni rewrite rule but MITM is disabled; falling back to a direct tunnel` —— 第三方 app 请求进入本地代理并被规则处理 |
+| 系统代理注册 | ✅ | `dumpsys connectivity`：VPN network `HttpProxy: [127.0.0.1] 31181` + `DnsAddresses [10.111.0.2]` + tun0 |
+| 状态文案 | ✅ | 首页 RUNNING 显示"DNS 防污染已生效 · 系统代理已注册 · MITM 已关闭"（QA-005 修复） |
+| 通知权限 | ✅ | 新 APK 首启弹系统权限弹窗；`pm grant POST_NOTIFICATIONS` 后 `granted=true`（QA-002 修复） |
+| SMK-03 停止恢复 | ✅ | 停止后 tun0 消失、VPN network=0、`ping example.com` 通过普通 DNS 解析成功 |
+
+截图：`docs/qa/screenshots/e2_home_running.png`、`e2_home_stats.png`（连接62/DNS8）、`e2_rules.png`（69域名/77规则）、`e2_logs.png`、`e2_settings_running.png`、`e2_certguide_running.png`、`e2_stopped_final.png`。
+
+仍存问题（不阻塞 E2）：QA-003（TC=1；大应答场景）、QA-009（上行/下行流量仍 0 B）、S3 `忽略 tun 数据包: not-ipv4-or-malformed` 偶发 debug 日志。
+
+## 8. 验收矩阵最终状态（截至 04:58）
+
+| Gate | 状态 | 证据 |
+| --- | --- | --- |
+| G1 构建/单测 | 🟡 | 编译通过；core 13 个 MITM/CA 测试失败（proxy-dev 修复中）；QA fuzz 测试已修测试 bug 待复跑 |
+| G2 安装/启动/五屏 | ✅ PASS | 模拟器安装、启动、五屏+深色截图 |
+| G3 VPN 启动/通知 | ✅ PASS | RUNNING/通知权限已授予（修复后）；通知可见性待截图确认 |
+| G4 系统代理闭环 | ✅ PASS | dumpsys HttpProxy + 连接数 62 + SNI 规则日志 |
+| G5 DNS 闭环 | ✅ PASS | 见 §7 |
+| G6 停止/失败安全 | 🟡 PASS | 停止/force-stop 恢复网络 ✅；kill-proxy 故障注入 BLOCKED-BY-TOOLING（等 debug receiver） |
+| G7 FGS 合规 | ✅ PASS | specialUse/always-on meta-data 静态 + 实跑无异常 |
+| G8 边界诚实 | ✅ PASS | Private DNS/lockdown banner、UI 明示代理生效范围、02/03 文档 |
+| G9 MITM（默认关） | ⏸ 未测 | 待 TC 修复后或时间允许做 CA/MITM |
+| G10 后台存活 | ⏸ 未测 | 待 always-on/锁屏长测（模拟器） |
+| G11 性能 | 🟡 | 冷启首次 ~15s（模拟器首启/dex），温启 <1s；DNS 解析正常；空闲 CPU 待测 |
+| G12 静态合规 | ✅ PASS | audit_md3 PASS；check_apk PASS；check_requirements 45/46（仅 git tag） |
