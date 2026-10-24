@@ -99,6 +99,24 @@ function Invoke-TestStage {
     Add-Gate '预交付物存在(dev)' (Test-Path $devApk) $(if (Test-Path $devApk) { $devApk } else { '请先运行 pipeline.ps1 dev' })
     if (-not (Test-Path $devApk)) { throw "缺少预交付物，测试环境中止" }
 
+    # 0b) 预交付物与 build-info 一致性：哈希必须匹配、gitSha 必须等于当前 HEAD
+    #     防止“测试/交付物与源码或产物脱节”（改完源码忘记重新 build → 直接判失败）。
+    $infoPath = "$root\out\dev\build-info.json"
+    $infoOk = $false
+    $infoDetail = 'build-info.json 缺失'
+    if (Test-Path $infoPath) {
+        try {
+            $info = Get-Content $infoPath -Raw | ConvertFrom-Json
+            $actualSha = Write-Sha256 $devApk
+            $headSha = (git -C $root rev-parse --short HEAD)
+            $shaOk = ($info.sha256 -eq $actualSha)
+            $gitOk = ($info.gitSha -eq $headSha)
+            $infoOk = ($shaOk -and $gitOk)
+            $infoDetail = "sha256Match=$shaOk gitShaMatch=$gitOk (artifact=$($info.gitSha) head=$headSha)"
+        } catch { $infoDetail = "解析失败: $_" }
+    }
+    Add-Gate '预交付物 build-info 一致性' $infoOk $infoDetail
+
     # 1) :core 单元/集成测试
     $coreOk = $true; $coreDetail = ''
     try { Invoke-Gradle @(':core:test') 'test-core' } catch { $coreOk = $false; $coreDetail = "$_" }

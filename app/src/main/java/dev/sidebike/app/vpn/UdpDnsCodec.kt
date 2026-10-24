@@ -398,13 +398,16 @@ internal class DnsTunHandler(
      * the tun MTU.
      */
     fun classify(packet: ByteArray, length: Int = packet.size): Classified {
+        if (length <= 0) return Classified.Ignored("empty-packet")
+        val version = (packet[0].toInt() ushr 4) and 0x0F
+        if (version != IpPacket.IPV4_VERSION) return Classified.Ignored("not-ipv4(version=$version)")
         val ip = IpPacket.parseIpv4(packet, 0, length)
-            ?: return Classified.Ignored("not-ipv4-or-malformed")
-        if (ip.protocol != IpPacket.PROTOCOL_UDP) return Classified.Ignored("not-udp")
+            ?: return Classified.Ignored("malformed-ipv4")
+        if (ip.protocol != IpPacket.PROTOCOL_UDP) return Classified.Ignored("not-udp(proto=${ip.protocol})")
         if (!ip.destinationAddress.contentEquals(vpnDnsAddress)) return Classified.Ignored("not-vpn-dns-address")
 
         val udp = IpPacket.parseUdp(ip.payload) ?: return Classified.Ignored("malformed-udp")
-        if (udp.destinationPort != DNS_PORT) return Classified.Ignored("not-dns-port")
+        if (udp.destinationPort != DNS_PORT) return Classified.Ignored("not-dns-port(${udp.destinationPort})")
 
         val info = DnsWire.inspect(udp.payload) ?: return Classified.Ignored("malformed-dns")
         if (info.isResponse) return Classified.Ignored("dns-response-not-query")

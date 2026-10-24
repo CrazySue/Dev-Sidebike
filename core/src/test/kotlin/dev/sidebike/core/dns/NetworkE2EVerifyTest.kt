@@ -60,7 +60,7 @@ class NetworkE2EVerifyTest {
     private fun elapsedMs(start: Long): Long = (System.currentTimeMillis() - start)
 
     @Test(timeout = 120_000)
-    fun realNetworkEngineE2E() {
+    fun realNetworkEngineE2E() = runBlocking {
         Assume.assumeTrue(
             "真实网络 E2E：仅当 DS_NETWORK_E2E=1 时运行（默认跳过，保持 hermetic CI）",
             System.getenv("DS_NETWORK_E2E") == "1",
@@ -118,7 +118,7 @@ class NetworkE2EVerifyTest {
                 val rcode = parsed?.rcode ?: -1
                 val tc = parsed?.isTruncated ?: true
                 // 直接解析（非 raw）拿 provider 路径
-                val answer = runCatching { runBlocking { resolver.resolve(host) } }.getOrNull()
+                val answer = runCatching { resolver.resolve(host) }.getOrNull()
                 val provider = answer?.provider ?: "?"
                 val providerIps = answer?.ips?.take(4) ?: emptyList()
                 val ok = rcode == 0 && ips.isNotEmpty() && !tc

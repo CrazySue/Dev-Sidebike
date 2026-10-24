@@ -393,7 +393,15 @@ class SidebikeVpnService : VpnService() {
                     }
                     is DnsTunHandler.Classified.Ignored -> {
                         if (ignoredLogBudget > 0) {
-                            log(LogLevel.DEBUG, "忽略 tun 数据包: ${classified.reason}")
+                            // Include a short hex prefix so field diagnostics can tell what kind of
+                            // packet reached the tun (e.g. IPv6 vs malformed IPv4 vs fragments).
+                            val head = buildString {
+                                for (index in 0 until minOf(8, read)) {
+                                    if (index > 0) append(' ')
+                                    append(String.format("%02x", buffer[index].toInt() and 0xFF))
+                                }
+                            }
+                            log(LogLevel.DEBUG, "忽略 tun 数据包: ${classified.reason} len=$read head=[$head]")
                             ignoredLogBudget--
                         }
                     }
