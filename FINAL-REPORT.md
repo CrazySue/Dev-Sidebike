@@ -62,7 +62,7 @@
 
 | 验证 | 结果 |
 | --- | --- |
-| `:core:test` | **174 tests，0 failed，1 skipped**（真实网络 E2E 为 opt-in skip） |
+| `:core:test` | **183 tests，0 failed，1 skipped**（真实网络 E2E 为 opt-in skip；含 QA 新增 core 对抗测试 9 例：HTTP 4000 组随机字节 fuzz / 超大 header / anti-smuggling / CONNECT 怪目标 / JSON5 2000 组 fuzz / 畸形配置导入 / 规则引擎怪 host） |
 | `:app:testDebugUnitTest` | **181 tests，0 failed，2 skipped**（Robolectric 截图采集为 opt-in skip；含 Controller/数据/VPN 编解码/Robolectric UI/QA 对抗 fuzz） |
 | MD3/动画静态审计 | PASS（27 个 UI Kotlin 文件，动画 72 处，运动 token 使用 36 处，无 M2/硬编码颜色/线性动画/自定义字体） |
 | APK 门禁 | PASS（release：包名/minSdk26/targetSdk35/权限/VPN 声明/FGS type/always-on/NSC user CA/debuggable=false；debug：符合变体） |
@@ -82,6 +82,7 @@
 | Release APK 真机实测（模拟器 API35） | **PASS**：安装→VPN 授权→E1 系统代理注册→E2 DNS 防污染（github 真实 IP）→HTTP `GET` 返回 200 / `CONNECT` 返回 200→统计字节（上行 621B/下行 2.3KB，QA-009 已关闭）→停止后 tun0 消失、DNS 恢复 |
 | 失败安全 | **PASS**：stop / force-stop / KILL_PROXY / CRASH_ENGINE 均自动恢复网络且可重启（E5/E5b） |
 | G1–G12 验收矩阵 | G1–G8、G11、G12 ✅；G9 MITM 真机端到端未做（默认关闭，core MITM/CA 20 单测 PASS，非阻塞）；G10 模拟器后台 PASS、真机 MIUI 待 owner M5 |
+| QA 对抗测试 | app `VpnCodecFuzzTest` 8/8 PASS；core `CoreAdversarialQaTest` 9/9 PASS（HTTP/DNS/JSON5/配置/规则 fuzz，全部 hermetic） |
 | **QA 最终结论** | **有条件通过（release gate PASS）**，条件仅为环境类未测项（MIUI/HyperOS 后台策略、Private DNS/lockdown 真机组合、MITM 默认关闭），已写入交付说明与 owner 真机清单（`_script/qa/device_verify.md`）。完整矩阵见 `docs/qa/05-test-report.md` §17。 |
 
 ---

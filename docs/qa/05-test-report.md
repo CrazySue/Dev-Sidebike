@@ -293,3 +293,21 @@ install → app-launch（COLD 12.4s，模拟器）→ vpn-established（VPN CONN
 
 ### 门禁工具修正（05:29）
 `run_qa_tests.ps1 -Release` 曾把 `-ExpectNoNative` 传给 `check_apk`（与"beta release 故意 ARM-only"的交付口径冲突）。已修正：新增 `check_apk -ExpectArmOnly`，release 模式下断言 native-code 恰为 `arm64-v8a + armeabi-v7a`（多余/缺失都失败）。最终运行：`run_qa_tests.ps1 -Apk dist/...release.apk -Release` → **requirements PASS / md3-audit PASS / apk-check PASS / ALL QA GATES PASS**。
+
+## 18. core 对抗测试补充（T7 deliverable #3 补齐，2026-10-25 05:33）
+
+新增 `core/src/test/kotlin/dev/sidebike/core/qa/CoreAdversarialQaTest.kt`（9 用例，hermetic、无外网、~6s）：
+| 用例 | 覆盖 | 结果 |
+| --- | --- | --- |
+| httpRequestHeadFuzzOnlyThrowsMalformedInputErrors | 4000 组随机字节解析 HTTP head，只允许 Malformed/EOF/IO 异常（防 OOB/NPE/StackOverflow） | PASS |
+| oversizedHeaderBlockIsRejected | >64KB header block 必须拒绝 | PASS |
+| obsoleteHeaderFoldingIsRejected | 过时 header 折行拒绝（请求走私防护） | PASS |
+| badContentLengthIsRejected | 非法 Content-Length 拒绝 | PASS |
+| connectTargetsAreParsedWithoutCrashing | CONNECT 目标（IPv6/超长/空格/Unicode）不崩、ASCII 原样保留 | PASS |
+| json5LenientFuzzOnlyThrowsParseErrors | 2000 组随机 JSON5 片段，仅允许解析异常 | PASS |
+| upstreamConfigImportMalformedInputsDoNotCrash | 空/非对象/错类型/200KB 字符串/JSON5 注释单引号等畸形上游配置导入不崩 | PASS |
+| ruleEngineWeirdHostsNeverThrow | 空/空白/超长/Unicode/带空格 host 的 plan/match/whitelist/domestic 不抛异常 | PASS |
+| invalidRegexAndWeirdInterceptPatternsDoNotCrashUpdate | 非法正则/怪 pattern intercepts 配置 updateConfig 不抛 PatternSyntaxException | PASS |
+
+运行：`powershell -NoProfile -File _script\gradle.ps1 :core:test --tests "dev.sidebike.core.qa.*"` → **BUILD SUCCESSFUL，9/9 PASS**。
+（至此 T7 deliverable #3 的 app 层 `VpnCodecFuzzTest` 8/8 + core 层 `CoreAdversarialQaTest` 9/9 均绿；release dist 产物未受影响。）
