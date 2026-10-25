@@ -1,7 +1,7 @@
 # Dev-Sidebike v0.1.0-beta.1 · 最终交付报告
 
 > 交付时间：2026-10-25（项目启动 03:26，05:25 完成最终三环境流水线）。作者：Lead（Agent Teams）。
-> 状态：**beta 完成。`pipeline.ps1 all` 全绿（dev → test → prod），交付物已生成于 `dist/`（git `09e3696`）。**
+> 状态：**beta 完成。`pipeline.ps1 all` 全绿（dev → test → prod），交付物已生成于 `dist/`（提交 `5c6f9bb` 起包含全新应用图标；最终交付哈希与构建信息以 `dist/delivery-manifest.json` 为准）。**
 
 ---
 
@@ -19,12 +19,14 @@
 
 | 文件 | 说明 |
 | --- | --- |
-| `Dev-Sidebike-0.1.0-beta.1-release.apk` | **推荐安装**。14.67 MB，release 签名（beta 自签名 CN=Dev-Sidebike Beta），仅 ARM（arm64-v8a / armeabi-v7a），debuggable=false，sha256 `cdbf5a02...f359108` |
-| `Dev-Sidebike-0.1.0-beta.1-debug.apk` | 21.13 MB，debug 预交付物（含 x86_64/x86，便于模拟器/排障），sha256 `f8127d78...b889b1` |
+| `Dev-Sidebike-0.1.0-beta.1-release.apk` | **推荐安装**。约 14.7 MB，release 签名（beta 自签名 CN=Dev-Sidebike Beta），仅 ARM（arm64-v8a / armeabi-v7a），debuggable=false；sha256 以 `dist/SHA256SUMS.txt` / `delivery-manifest.json` 为准 |
+| `Dev-Sidebike-0.1.0-beta.1-debug.apk` | 约 21.6 MB，debug 预交付物（含 x86_64/x86，便于模拟器/排障）；sha256 同上 |
 | `SHA256SUMS.txt` | 校验和（与 APK 实测一致） |
-| `delivery-manifest.json` | 版本 / git SHA `09e3696` / 构建时间 / 产物哈希 / 测试报告索引 |
+| `delivery-manifest.json` | 版本 / git SHA / 构建时间 / 产物哈希 / 测试报告索引 |
 | `README.md` | 安装与使用说明、已知限制 |
 | `TEST-REPORT.md` | 测试环境完整报告（单测/静态审计/APK 校验/门禁结果，结论 PASS） |
+
+> **图标更新（2026-10-25 15:40）**：应 owner 要求更换全新应用图标（深海军蓝 + 白色线稿摩托/边车 + 代码箭头 + 速度线，适配 Material You 单色图标），并据此重新执行 `pipeline.ps1 all` 与 `check_delivery.ps1`（均 PASS）。最终 APK 与哈希以 `dist/` 和 GitHub Release Assets 为准。
 
 ### 2.2 源码与文档（工作区 `E:\WorkSpace\Dev-Sidebike`）
 

@@ -1,4 +1,4 @@
-﻿# 05 路 Dev-Sidebike QA 娴嬭瘯鎶ュ憡锛堣凯浠ｆ洿鏂帮級
+# 05 路 Dev-Sidebike QA 娴嬭瘯鎶ュ憡锛堣凯浠ｆ洿鏂帮級
 
 > 浣滆€咃細challenger锛堢嫭绔?QA锛夈€傛渶杩戞洿鏂帮細2026-10-25 04:28锛圓sia/Shanghai锛夈€?> 琚祴 APK锛歚out/dev/app-debug.apk`锛宻ha256 `4f4b4cbdb1cdcf2359b9193439730a38a3284592c81e7e9a91794dc4fec3c777`锛寁ersion `0.1.0-beta.1-debug`锛実it `cf00d31`锛宐uiltAt 2026-10-25 04:10:40銆?> 鐜锛歐indows 11 + PowerShell 5.1锛涚绾?Android SDK 35锛沨eadless 妯℃嫙鍣?`qa35` = `system-images;android-35;google_apis_playstore;x86_64`锛圵HPX 鍔犻€燂紝1080x1920/420dpi锛孉ndroid 15锛夈€傛湰宸ヤ綔鍖烘棤鐪熸満锛坄adb devices` 浠呮ā鎷熷櫒锛夈€?> 璇佹嵁鐩綍锛歚docs/qa/screenshots/`锛堢湡 PNG锛宑md 浜岃繘鍒堕噸瀹氬悜閲囬泦锛夈€?
 ## 1. 缁撹鎽樿
@@ -246,6 +246,8 @@ install → app-launch（COLD 12.4s，模拟器）→ vpn-established（VPN CONN
 证据：`docs/qa/evidence/smoke-20261025-051519.log` + 5 张 PNG。该脚本可作为 owner/未来回归的标准验收入口。
 
 ## 17. 最终 Release 验收（2026-10-25 05:27，dist 产物）
+
+> **注（2026-10-25 15:40 追加）**：以下哈希为首次交付构建（tag 基线 `09e3696`）的 QA 门禁快照。随后应 owner 要求更换了全新应用图标并重新构建发布，最终交付哈希以仓库 `dist/SHA256SUMS.txt`、`dist/delivery-manifest.json` 与 GitHub Release Assets 为准；`check_delivery.ps1` 已在图标更新后的最终构建上重跑 **PASS**（结构/权限/ABI/NSC/debuggable=false 结论不变，功能代码未变）。
 
 ### 交付物门禁（check_delivery.ps1 → PASS）
 | 项 | 结果 |
