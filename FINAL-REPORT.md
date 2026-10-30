@@ -1,7 +1,7 @@
 # Dev-Sidebike v0.1.0-beta.1 · 最终交付报告
 
 > 交付时间：2026-10-25（项目启动 03:26，05:25 完成最终三环境流水线）。作者：Lead（Agent Teams）。
-> 状态：**beta 完成。`pipeline.ps1 all` 全绿（dev → test → prod），交付物已生成于 `dist/`（提交 `5c6f9bb` 起包含全新应用图标；最终交付哈希与构建信息以 `dist/delivery-manifest.json` 为准）。**
+> 状态：**beta 完成。`pipeline.ps1 all` 全绿（dev → test → prod），交付物已生成于 `dist/`（最终交付哈希与构建信息以 `dist/delivery-manifest.json` 为准）。**
 
 ---
 
@@ -25,8 +25,6 @@
 | `delivery-manifest.json` | 版本 / git SHA / 构建时间 / 产物哈希 / 测试报告索引 |
 | `README.md` | 安装与使用说明、已知限制 |
 | `TEST-REPORT.md` | 测试环境完整报告（单测/静态审计/APK 校验/门禁结果，结论 PASS） |
-
-> **图标更新（2026-10-25 15:40）**：应 owner 要求更换全新应用图标（深海军蓝 + 白色线稿摩托/边车 + 代码箭头 + 速度线，适配 Material You 单色图标），并据此重新执行 `pipeline.ps1 all` 与 `check_delivery.ps1`（均 PASS）。最终 APK 与哈希以 `dist/` 和 GitHub Release Assets 为准。
 
 ### 2.2 源码与文档（工作区 `E:\WorkSpace\Dev-Sidebike`）
 

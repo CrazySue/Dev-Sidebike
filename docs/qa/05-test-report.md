@@ -247,7 +247,7 @@ install → app-launch（COLD 12.4s，模拟器）→ vpn-established（VPN CONN
 
 ## 17. 最终 Release 验收（2026-10-25 05:27，dist 产物）
 
-> **注（2026-10-25 15:40 追加）**：以下哈希为首次交付构建（tag 基线 `09e3696`）的 QA 门禁快照。随后应 owner 要求更换了全新应用图标并重新构建发布，最终交付哈希以仓库 `dist/SHA256SUMS.txt`、`dist/delivery-manifest.json` 与 GitHub Release Assets 为准；`check_delivery.ps1` 已在图标更新后的最终构建上重跑 **PASS**（结构/权限/ABI/NSC/debuggable=false 结论不变，功能代码未变）。
+> **注（最终构建）**：以下哈希为 QA 门禁时的构建快照；最终交付哈希以仓库 `dist/SHA256SUMS.txt`、`dist/delivery-manifest.json` 与 GitHub Release Assets 为准。最终构建已重新执行 `pipeline.ps1 all`，`check_delivery.ps1` **PASS**（结构/权限/ABI/NSC/debuggable=false 结论不变，功能代码未变）。
 
 ### 交付物门禁（check_delivery.ps1 → PASS）
 | 项 | 结果 |

@@ -1,5 +1,4 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <!-- New brand palette for the launcher icon (v0.1.0-beta.1 restart): deep navy + white line art. -->
-    <color name="ic_launcher_background">#102A56</color>
+    <color name="ic_launcher_background">#1B5E52</color>
 </resources>
