@@ -1,7 +1,7 @@
 # Dev-Sidebike
 
 > Android 版「开发者边车」：把 Dev-Sidecar 的加速能力带到 Android 系统级。
-> **状态：beta（v0.1.0-beta.1）** — 后端纯 Kotlin 重写、VpnService 系统级 DNS 拦截 + 系统 HTTP 代理、严格 Material 3 前端。
+> **状态：alpha（v0.1.0-alpha）** — 后端纯 Kotlin 重写、VpnService 系统级 DNS 拦截 + 系统 HTTP 代理、严格 Material 3 前端。
 
 ---
 
@@ -12,7 +12,7 @@
 它没有 Android 版本。**Dev-Sidebike** 把它的后端能力移植到 Android：
 
 - **后端**：用纯 Kotlin/JVM 重写 Dev-Sidecar 内核（DNS 解析层、规则引擎、HTTP/HTTPS 代理、CA/MITM、拦截器），模块边界与配置语义与上游对齐；不携带 Node.js 运行时，后端逻辑与 CPU 架构无关。
-- **ABI 说明**：Jetpack 传递依赖自带少量 `.so`（DataStore/GraphicsPath），因此 APK 仍按 ABI 打包。beta **交付物仅适配 arm64-v8a / armeabi-v7a**（符合项目要求）；**debug/测试 APK 额外包含 x86_64 / x86** 以便模拟器验收；其他架构可通过 `app/build.gradle.kts` 的 `ndk.abiFilters` 一行扩展。
+- **ABI 说明**：Jetpack 传递依赖自带少量 `.so`（DataStore/GraphicsPath），因此 APK 仍按 ABI 打包。本版**交付物仅适配 arm64-v8a / armeabi-v7a**（符合项目要求）；**debug/测试 APK 额外包含 x86_64 / x86** 以便模拟器验收；其他架构可通过 `app/build.gradle.kts` 的 `ndk.abiFilters` 一行扩展。
 - **系统级接入**：`VpnService` 只接管 DNS（tun 内应答 `10.111.0.2:53`），对所有应用生效且**无需安装证书**；API 29+ 同时用 `VpnService.Builder.setHttpProxy()` 把本地 HTTP 代理注册为系统代理。
 - **增强模式**：开启 MITM（需用户安装本应用生成的 CA）后可用 `sni` 诱饵改写、镜像改写、响应替换等上游拦截器能力（Android 7+ 第三方应用默认不信任用户 CA，仅浏览器等部分应用受益）。
 - **前端**：Jetpack Compose + **严格 Material Design 3**（MD3 token、动态取色、深色模式），所有界面状态变化均使用 MD3 非线性运动曲线（emphasized/standard 缓动 + 时长 token）。
@@ -26,7 +26,7 @@
 | 直连加速（GitHub 核心域等，干净 DNS 后直连） | 不需要 | ✅ 本机实测 github.com/api.github.com/codeload.github.com 直连可达 |
 | 诱饵 SNI / 镜像改写 / 脚本注入（raw.githubusercontent、Google 系等） | 需要 | ⚠️ 需 MITM + 用户 CA；仅信任用户 CA 的应用（浏览器等）可用 |
 | 让**所有**应用流量强制走代理 | — | ⚠️ 无 root 做不到；仅遵循系统代理/系统 DNS 的应用受益（OkHttp/Chromium 等通常遵循） |
-| ECH、NAT64、overwall、git/node/pip 插件 | — | ❌ beta 不做，已在文档标注 |
+| ECH、NAT64、overwall、git/node/pip 插件 | — | ❌ 本版本不做，已在文档标注 |
 
 > 详细证据（源码行号 + 只读实测 + 逐条可移植性判定）见 [`docs/feasibility/01-dev-sidecar-analysis.md`](docs/feasibility/01-dev-sidecar-analysis.md)；独立复核与 Android 平台限制见 [`docs/feasibility/02-android-constraints.md`](docs/feasibility/02-android-constraints.md) 与 [`docs/feasibility/03-review-checklist.md`](docs/feasibility/03-review-checklist.md)。
 
@@ -58,7 +58,7 @@ powershell -NoProfile -File _script\pipeline.ps1 prod   # 生产环境 → 交�
 powershell -NoProfile -File _script\pipeline.ps1 all    # 串行执行 dev→test→prod
 ```
 
-安装：`dist/Dev-Sidebike-<version>-release.apk`（beta 自签名，需允许未知来源）。
+安装：`dist/Dev-Sidebike-<version>-release.apk`（自签名，需允许未知来源）。
 
 ## 4. 目录结构
 
@@ -85,7 +85,7 @@ Dev-Sidebike/
 - 可靠性设计：代理先自检再建立 VPN；运行中 watchdog；端口冲突回退；Private DNS / lockdown 检测与强提示；tun DNS 应答器永不置 TC（按 EDNS0 裁剪）。
 - 版本控制：git（main 分支 + 里程碑 tag），提交信息遵循 `type(scope): 中文摘要`。
 
-## 6. 已知限制（beta）
+## 6. 已知限制（0.1.0-alpha）
 
 1. 不遵循系统 HTTP 代理的应用只能获得 DNS 级加速。
 2. 系统 Private DNS 设为 hostname 时会绕过 VPN DNS（应用内检测并提示）。

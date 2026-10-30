@@ -1,6 +1,6 @@
 # 05 路 Dev-Sidebike QA 娴嬭瘯鎶ュ憡锛堣凯浠ｆ洿鏂帮級
 
-> 浣滆€咃細challenger锛堢嫭绔?QA锛夈€傛渶杩戞洿鏂帮細2026-10-25 04:28锛圓sia/Shanghai锛夈€?> 琚祴 APK锛歚out/dev/app-debug.apk`锛宻ha256 `4f4b4cbdb1cdcf2359b9193439730a38a3284592c81e7e9a91794dc4fec3c777`锛寁ersion `0.1.0-beta.1-debug`锛実it `cf00d31`锛宐uiltAt 2026-10-25 04:10:40銆?> 鐜锛歐indows 11 + PowerShell 5.1锛涚绾?Android SDK 35锛沨eadless 妯℃嫙鍣?`qa35` = `system-images;android-35;google_apis_playstore;x86_64`锛圵HPX 鍔犻€燂紝1080x1920/420dpi锛孉ndroid 15锛夈€傛湰宸ヤ綔鍖烘棤鐪熸満锛坄adb devices` 浠呮ā鎷熷櫒锛夈€?> 璇佹嵁鐩綍锛歚docs/qa/screenshots/`锛堢湡 PNG锛宑md 浜岃繘鍒堕噸瀹氬悜閲囬泦锛夈€?
+> 浣滆€咃細challenger锛堢嫭绔?QA锛夈€傛渶杩戞洿鏂帮細2026-10-25 04:28锛圓sia/Shanghai锛夈€?> 琚祴 APK锛歚out/dev/app-debug.apk`锛宻ha256 `4f4b4cbdb1cdcf2359b9193439730a38a3284592c81e7e9a91794dc4fec3c777`锛寁ersion `0.1.0-alpha-debug`锛実it `cf00d31`锛宐uiltAt 2026-10-25 04:10:40銆?> 鐜锛歐indows 11 + PowerShell 5.1锛涚绾?Android SDK 35锛沨eadless 妯℃嫙鍣?`qa35` = `system-images;android-35;google_apis_playstore;x86_64`锛圵HPX 鍔犻€燂紝1080x1920/420dpi锛孉ndroid 15锛夈€傛湰宸ヤ綔鍖烘棤鐪熸満锛坄adb devices` 浠呮ā鎷熷櫒锛夈€?> 璇佹嵁鐩綍锛歚docs/qa/screenshots/`锛堢湡 PNG锛宑md 浜岃繘鍒堕噸瀹氬悜閲囬泦锛夈€?
 ## 1. 缁撹鎽樿
 
 | 闂ㄧ | 鐘舵€?| 璇佹嵁/澶囨敞 |
@@ -167,7 +167,7 @@ NetworkAgentInfo{network{102} ni{VPN CONNECTED extra: VPN:dev.sidebike.app.debug
 ### TC=1 修复确认（QA-003 → FIXED）
 源码 `UdpDnsCodec` 已改为：EDNS0 UDP payload clamp 到 1200 → `trimResponseToFit` 保留 question+能放下的 answer 记录、TC=0（beta 无 TCP:53）。QA 测试已同步为 never-TC 断言。
 
-### 已知问题（不阻塞 beta，记录并转 owner）
+### 已知问题（不阻塞 alpha 交付，记录并转 owner）
 | ID | 级别 | 内容 | Owner |
 | --- | --- | --- | --- |
 | QA-009 | S2 | 统计"上行/下行流量"始终 0 B（连接数/DNS 计数正常） | proxy-dev/engine |
@@ -196,7 +196,7 @@ NetworkAgentInfo{network{102} ni{VPN CONNECTED extra: VPN:dev.sidebike.app.debug
 `ScreenshotQaTest` / `ScreenshotQaTestDark`（app/src/test/java/dev/sidebike/app/qa/）已改为 **opt-in**：
 - 默认 `testDebugUnitTest` 中通过 `Assume.assumeTrue` **SKIP**（Windows 上 Robolectric NATIVE-graphics 的 `captureToImage()` 会因无限动画 idling 抛 `ComposeTimeoutException`，不能污染默认套件）；
 - 需要时运行 `_script/qa/run_screenshots.ps1`（设置 `DSH_QA_SCREENSHOTS=1` + `--no-daemon`，让 test worker 继承环境变量）；dark 变体的 qualifier 顺序 bug（`night` 需在 density 前）已修；
-- beta 验收的 UI 截图**以真机（模拟器 Android 15）证据为准**：`docs/qa/screenshots/` 共 37+ 张真 PNG（五屏 × IDLE/RUNNING/ERROR/环境警告 × 浅/深色 + E1/E2/E5 证据），不依赖 Robolectric 截图。
+- alpha 验收的 UI 截图**以真机（模拟器 Android 15）证据为准**：`docs/qa/screenshots/` 共 37+ 张真 PNG（五屏 × IDLE/RUNNING/ERROR/环境警告 × 浅/深色 + E1/E2/E5 证据），不依赖 Robolectric 截图。
 
 QA 包当前测试：`VpnCodecFuzzTest` 8 个用例（默认套件中运行，全 PASS）+ 2 个 opt-in 采集方法（默认 SKIP）。
 
@@ -252,12 +252,12 @@ install → app-launch（COLD 12.4s，模拟器）→ vpn-established（VPN CONN
 ### 交付物门禁（check_delivery.ps1 → PASS）
 | 项 | 结果 |
 | --- | --- |
-| release APK | `dist/Dev-Sidebike-0.1.0-beta.1-release.apk`（14.67 MB，sha256 `cdbf5a022c6269647af6a2217784658058029a3b3c2ef5d9927065a77f359108`） |
-| debug APK | `dist/Dev-Sidebike-0.1.0-beta.1-debug.apk`（21.13 MB，sha256 `f8127d78c950dee5949f5ed5a8bd202f1bea4914f6209a1d242cd26dc4b889b1`） |
+| release APK | `dist/Dev-Sidebike-0.1.0-alpha-release.apk`（14.67 MB，sha256 `cdbf5a022c6269647af6a2217784658058029a3b3c2ef5d9927065a77f359108`） |
+| debug APK | `dist/Dev-Sidebike-0.1.0-alpha-debug.apk`（21.13 MB，sha256 `f8127d78c950dee5949f5ed5a8bd202f1bea4914f6209a1d242cd26dc4b889b1`） |
 | SHA256SUMS.txt | 两条记录逐一复核 **一致** |
-| delivery-manifest.json | version=0.1.0-beta.1、gitSha=**09e3696**、sha256 两个 APK 均 **一致** |
+| delivery-manifest.json | version=0.1.0-alpha、gitSha=**09e3696**、sha256 两个 APK 均 **一致** |
 | README.md / TEST-REPORT.md | 存在且非空 |
-| check_apk -Release | **PASS**：package=dev.sidebike.app（无 debug 后缀）、versionCode=1、versionName=0.1.0-beta.1、debuggable=**false**、minSdk=26、targetSdk=35、native-code=**arm64-v8a+armeabi-v7a**（符合 ARM-only 交付口径）、INTERNET/FOREGROUND_SERVICE/POST_NOTIFICATIONS/RECEIVE_BOOT_COMPLETED、无 WRITE_SECURE_SETTINGS、BIND_VPN_SERVICE+VpnService action+foregroundServiceType(specialUse)+always-on meta-data+NSC trust user CA |
+| check_apk -Release | **PASS**：package=dev.sidebike.app（无 debug 后缀）、versionCode=1、versionName=0.1.0-alpha、debuggable=**false**、minSdk=26、targetSdk=35、native-code=**arm64-v8a+armeabi-v7a**（符合 ARM-only 交付口径）、INTERNET/FOREGROUND_SERVICE/POST_NOTIFICATIONS/RECEIVE_BOOT_COMPLETED、无 WRITE_SECURE_SETTINGS、BIND_VPN_SERVICE+VpnService action+foregroundServiceType(specialUse)+always-on meta-data+NSC trust user CA |
 
 ### Release APK 真机（模拟器 API35）验证
 - 安装/启动/通知权限/VPN 授权：✅（release 包首次安装弹 VPN 授权，OK 后 RUNNING；`pm grant POST_NOTIFICATIONS` 后通知 channel importance=DEFAULT）
@@ -279,7 +279,7 @@ install → app-launch（COLD 12.4s，模拟器）→ vpn-established（VPN CONN
 | G6 失败安全 | ✅ PASS | stop/force-stop/KILL_PROXY/CRASH_ENGINE 全部自动 teardown + 网络恢复 + 可重启 |
 | G7 FGS 合规 | ✅ PASS | specialUse + always-on meta-data + 实跑无异常 |
 | G8 边界诚实 | ✅ PASS | 02/03/README 口径：ARM-only、MITM 默认关、API29+ 系统代理、MIUI 引导 |
-| G9 MITM/CA | ⚠️ 未实测（默认关闭，非 beta 阻塞） | CA/MITM 代码与单测在 core（MITM/CA 20 tests PASS）；真机 CA 安装+Chrome MITM 属 owner/后续 |
+| G9 MITM/CA | ⚠️ 未实测（默认关闭，非 alpha 阻塞） | CA/MITM 代码与单测在 core（MITM/CA 20 tests PASS）；真机 CA 安装+Chrome MITM 属 owner/后续 |
 | G10 后台存活 | 🟡 模拟器 PASS；真机 M5 待 owner | 前台服务+always-on 静态/模拟器验证；MIUI/HyperOS 需真机复验 |
 | G11 性能 | ✅ PASS（模拟器） | release 冷启 ~4.7s、debug 冷启 ~12.4s（首启 dex）；DNS 解析正常；空闲无异常 |
 | G12 静态合规 | ✅ PASS | audit_md3 PASS；check_apk PASS；requirements 46/46；build-info/sha256 一致 |
@@ -291,10 +291,10 @@ install → app-launch（COLD 12.4s，模拟器）→ vpn-established（VPN CONN
 4. API 26–28 设备无系统 HTTP 代理能力（仅 DNS 模式），UI 已提示；交付说明已注明。
 
 ### 最终 QA 结论
-**Dev-Sidebike 0.1.0-beta.1 判定：QA 有条件通过（release gate PASS）。** 在 Android 15 (API 35) 模拟器上，交付 APK 的安装/启动/VPN 授权/前台服务/DNS 防污染/系统 HTTP 代理下发/规则种子(69 域名/77 路径)/代理真实请求(HTTP 200 + CONNECT 200)/统计字节/DNS fail-safe/停止与故障恢复全部通过，静态门禁与三环境 pipeline 全绿，dist 产物哈希/manifest 一致可交付。剩余风险均为"环境/真机差异"类（MIUI 保活、Private DNS/lockdown 组合、MITM 默认关闭），已写入交付说明与 owner 手机 M1–M6 清单；**不阻塞 beta 交付，但 owner 首次真机验收应优先跑 M1（系统代理是否生效）与 M5（MIUI 存活）**。
+**Dev-Sidebike 0.1.0-alpha 判定：QA 有条件通过（release gate PASS）。** 在 Android 15 (API 35) 模拟器上，交付 APK 的安装/启动/VPN 授权/前台服务/DNS 防污染/系统 HTTP 代理下发/规则种子(69 域名/77 路径)/代理真实请求(HTTP 200 + CONNECT 200)/统计字节/DNS fail-safe/停止与故障恢复全部通过，静态门禁与三环境 pipeline 全绿，dist 产物哈希/manifest 一致可交付。剩余风险均为"环境/真机差异"类（MIUI 保活、Private DNS/lockdown 组合、MITM 默认关闭），已写入交付说明与 owner 手机 M1–M6 清单；**不阻塞 alpha 交付，但 owner 首次真机验收应优先跑 M1（系统代理是否生效）与 M5（MIUI 存活）**。
 
 ### 门禁工具修正（05:29）
-`run_qa_tests.ps1 -Release` 曾把 `-ExpectNoNative` 传给 `check_apk`（与"beta release 故意 ARM-only"的交付口径冲突）。已修正：新增 `check_apk -ExpectArmOnly`，release 模式下断言 native-code 恰为 `arm64-v8a + armeabi-v7a`（多余/缺失都失败）。最终运行：`run_qa_tests.ps1 -Apk dist/...release.apk -Release` → **requirements PASS / md3-audit PASS / apk-check PASS / ALL QA GATES PASS**。
+`run_qa_tests.ps1 -Release` 曾把 `-ExpectNoNative` 传给 `check_apk`（与"alpha release 故意 ARM-only"的交付口径冲突）。已修正：新增 `check_apk -ExpectArmOnly`，release 模式下断言 native-code 恰为 `arm64-v8a + armeabi-v7a`（多余/缺失都失败）。最终运行：`run_qa_tests.ps1 -Apk dist/...release.apk -Release` → **requirements PASS / md3-audit PASS / apk-check PASS / ALL QA GATES PASS**。
 
 ## 18. core 对抗测试补充（T7 deliverable #3 补齐，2026-10-25 05:33）
 

@@ -237,7 +237,7 @@ function Invoke-ProdStage {
         sha256     = @{}
         testReport = 'TEST-REPORT.md'
         upstream   = 'https://github.com/docmirror/dev-sidecar (MPL-2.0)'
-        installNote = '安装 release APK（beta 自签名，允许未知来源）；首次启动按引导授予 VPN 权限。'
+        installNote = '安装 release APK（自签名，允许未知来源）；首次启动按引导授予 VPN 权限。'
     }
     Get-ChildItem $distDir -Filter '*.apk' | ForEach-Object { $manifest.sha256[$_.Name] = (Write-Sha256 $_.FullName) }
     $manifest | ConvertTo-Json -Depth 5 | Set-Content -Encoding UTF8 "$distDir\delivery-manifest.json"

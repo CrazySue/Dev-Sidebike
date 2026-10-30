@@ -59,7 +59,7 @@ time=2026-10-25T04:54:54.605932500+08:00
 
 ## 2. APK 打包检查（静态）
 
-- APK：`out/dev/app-debug.apk`（22,009,649 B，2026-10-25 04:57 构建，`build-info.json` gitSha=`1657d25`，version=`0.1.0-beta.1`，minSdk=26）。
+- APK：`out/dev/app-debug.apk`（22,009,649 B，2026-10-25 04:57 构建，`build-info.json` gitSha=`1657d25`，version=`0.1.0-alpha`，minSdk=26）。
 - **Java 资源条目存在且字节一致**：
 
 | 检查 | 结果 |

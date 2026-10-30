@@ -7,12 +7,12 @@
 #     permissions, VpnService/FGS/always-on/NSC declarations (delegated to check_apk.ps1 -Release).
 # Usage:
 #   powershell.exe -NoProfile -ExecutionPolicy Bypass -File _script/qa/check_delivery.ps1
-#   ... -DistDir dist -Version 0.1.0-beta.1
+#   ... -DistDir dist -Version 0.1.0-alpha
 # Exit: 0 pass, 1 problems.
 param(
     [string]$Root = 'E:\WorkSpace\Dev-Sidebike',
     [string]$DistDir = '',
-    [string]$Version = '0.1.0-beta.1'
+    [string]$Version = '0.1.0-alpha'
 )
 $ErrorActionPreference = 'Continue'
 if (-not $DistDir) { $DistDir = Join-Path $Root 'dist' }

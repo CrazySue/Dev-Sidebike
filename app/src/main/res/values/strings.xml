@@ -209,7 +209,7 @@
     <string name="settings_dynamic_color_desc">Android 12+ 从系统壁纸取色（Material You）</string>
     <string name="settings_section_about">关于</string>
     <string name="settings_about">关于 Dev-Sidebike</string>
-    <string name="settings_about_desc">版本 %1$s · beta</string>
+    <string name="settings_about_desc">版本 %1$s · alpha</string>
     <string name="settings_licenses">开源许可与致谢</string>
     <string name="settings_licenses_desc">MPL-2.0 · 上游 Dev-Sidecar</string>
     <string name="settings_version_footer">Dev-Sidebike v%1$s · Material Design 3</string>
@@ -252,7 +252,7 @@
 
     <!-- ============================ About / licenses ============================ -->
     <string name="about_title">关于 Dev-Sidebike</string>
-    <string name="about_version">版本 %1$s（beta）</string>
+    <string name="about_version">版本 %1$s（alpha）</string>
     <string name="about_body">Dev-Sidebike 是 Dev-Sidecar 的 Android 重写版：通过 VpnService 提供系统级防污染 DNS，并在本机运行 HTTP/HTTPS 代理，为开发者的网络访问提供加速与诊断能力。</string>
     <string name="about_upstream_title">上游项目</string>
     <string name="about_upstream_body">Dev-Sidecar · docmirror · MPL-2.0 许可</string>
