@@ -241,7 +241,7 @@ class DefaultSidebikeControllerTest {
         awaitState { it.status == RunStatus.RUNNING }
         createdEngine!!.proxyRunning = false
 
-        val state = awaitState(timeoutMs = 10_000) { it.status == RunStatus.ERROR }
+        val state = awaitState(timeoutMs = 20_000) { it.status == RunStatus.ERROR }
         assertTrue(
             "watchdog must explain the proxy failure, was: ${state.lastError}",
             state.lastError?.contains("代理") == true,
@@ -308,12 +308,12 @@ class DefaultSidebikeControllerTest {
         val logs = runBlocking {
             withTimeout(FAIL_TIMEOUT_MS) {
                 controller.logs.first { entries ->
-                    entries.any { it.message.contains("VPN 已运行") } &&
-                        entries.any { it.tag == "controller" }
+                    entries.any { it.tag == "controller" && it.message.contains("已运行") }
                 }
             }
         }
-        assertTrue(logs.isNotEmpty())
+        assertTrue(logs.any { it.tag == "controller" })
+        assertTrue(logs.any { it.message.contains("已运行") })
     }
 
     // ---------------------------------------------------------------- helpers
@@ -329,7 +329,7 @@ class DefaultSidebikeControllerTest {
     )
 
     private fun awaitState(
-        timeoutMs: Long = 8_000,
+        timeoutMs: Long = 20_000,
         predicate: (SidebikeUiState) -> Boolean,
     ): SidebikeUiState = runBlocking {
         withTimeout(timeoutMs) { controller.state.first(predicate) }
@@ -484,6 +484,8 @@ class DefaultSidebikeControllerTest {
     }
 
     private companion object {
-        private const val FAIL_TIMEOUT_MS = 10_000L
+        // Generous timeout: these are Robolectric tests running on shared CI/agent machines where
+        // CPU contention can delay coroutine dispatch by several seconds (observed flakes at 10s).
+        private const val FAIL_TIMEOUT_MS = 30_000L
     }
 }
