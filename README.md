@@ -1,7 +1,7 @@
 # Dev-Sidebike
 
 > Android 版「开发者边车」：把 Dev-Sidecar 的加速能力带到 Android 系统级。
-> **状态：alpha（v0.1.0-alpha）** — 后端纯 Kotlin 重写、VpnService 系统级 DNS 拦截 + 系统 HTTP 代理、严格 Material 3 前端。
+> **状态：alpha（v0.1.1-alpha）** — 后端纯 Kotlin 重写、VpnService 系统级 DNS 拦截 + 系统 HTTP 代理、严格 Material 3 前端；0.1.1 起支持日志文件/诊断包导出、网络诊断、规则与规则源管理。
 
 ---
 
@@ -16,6 +16,9 @@
 - **系统级接入**：`VpnService` 只接管 DNS（tun 内应答 `10.111.0.2:53`），对所有应用生效且**无需安装证书**；API 29+ 同时用 `VpnService.Builder.setHttpProxy()` 把本地 HTTP 代理注册为系统代理。
 - **增强模式**：开启 MITM（需用户安装本应用生成的 CA）后可用 `sni` 诱饵改写、镜像改写、响应替换等上游拦截器能力（Android 7+ 第三方应用默认不信任用户 CA，仅浏览器等部分应用受益）。
 - **前端**：Jetpack Compose + **严格 Material Design 3**（MD3 token、动态取色、深色模式），所有界面状态变化均使用 MD3 非线性运动曲线（emphasized/standard 缓动 + 时长 token）。
+- **可观测性（0.1.1+）**：日志一键导出 `.log` 文本或诊断调试包 `.zip`（设备/网络/配置/状态/日志/诊断，敏感头自动脱敏）；内置网络诊断（DNS Provider 健康、解析路径、直连 TLS、本地代理 CONNECT/GET、系统代理/Private DNS/lockdown/CA 状态与 tun 丢包计数）。
+- **规则管理（0.1.1+）**：规则页四个标签（拦截规则 / 直连放行 / 国内域名 / 规则源），支持新增/编辑/删除规则、编辑直连与国内域名列表、从文本/URL 导入、添加 GitHub 推荐规则源（可开自动更新），删除内置规则会持久化不还原。
+- **CA 与 MITM 安全（0.1.1+）**：CA 安装与 MITM 开关解耦，支持系统证书安装 Intent + 系统凭据设置兜底、锁屏前置检查、SHA-256 指纹展示与 `.crt` 导出；MITM 开启必须检测到 CA；0.1.0 旧配置若处于“MITM 开、CA 未装”会自动降级直连，避免境外 HTTPS 全部失败。
 
 ## 2. 可行性结论（诚实版）
 
@@ -85,14 +88,16 @@ Dev-Sidebike/
 - 可靠性设计：代理先自检再建立 VPN；运行中 watchdog；端口冲突回退；Private DNS / lockdown 检测与强提示；tun DNS 应答器永不置 TC（按 EDNS0 裁剪）。
 - 版本控制：git（main 分支 + 里程碑 tag），提交信息遵循 `type(scope): 中文摘要`。
 
-## 6. 已知限制（0.1.0-alpha）
+## 6. 已知限制（0.1.1-alpha）
 
 1. 不遵循系统 HTTP 代理的应用只能获得 DNS 级加速。
 2. 系统 Private DNS 设为 hostname 时会绕过 VPN DNS（应用内检测并提示）。
-3. Android 7+ 第三方应用默认不信任用户 CA ⇒ MITM 增强仅对浏览器等少量应用生效。
+3. Android 7+ 第三方应用默认不信任用户 CA ⇒ MITM 增强仅对浏览器等少量应用生效；安装 CA 需要设备先设置锁屏。
 4. 无 root 无法静默安装系统 CA / 全局代理。
 5. 与本工具规则冲突的私有网络/企业 VPN 环境不保证可用；VPN 生效期间不能与其他 VPN 共存。
-6. ECH、NAT64、HTTP/2 MITM、overwall、桌面插件未实现（文档已标注）。
+6. 规则源导入只映射 DIRECT→直连放行、REJECT→拦截；PROXY、IP-CIDR/GEOIP/RULE-SET 等复杂类型会被跳过并提示（本版本无远端节点与递归规则集）。
+7. ECH、NAT64、HTTP/2 MITM、overwall、桌面插件未实现（文档已标注）。
+8. 若开启加速后境外站点仍无法访问：请到「设置 → 运行网络诊断」，并到「日志 → 导出诊断包」把 `.zip` 反馈给开发者；诊断会包含 DNS Provider 健康、解析 IP、直连/代理连通性与系统环境信息。
 
 ## 7. 致谢与许可
 

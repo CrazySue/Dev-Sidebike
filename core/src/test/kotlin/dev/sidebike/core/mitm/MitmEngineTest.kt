@@ -331,20 +331,25 @@ class MitmEngineTest {
 
         // 1) A client trusting an unrelated CA must fail the handshake without taking the proxy down.
         val unrelatedCaPem = TestCAs.newCa(clock).caCertificatePem
+        var untrusted: SSLSocket? = null
         try {
-            val ssl = MitmTestClient.connect(proxy.port, "trust.test", upstream.port, unrelatedCaPem)
+            untrusted = MitmTestClient.connect(proxy.port, "trust.test", upstream.port, unrelatedCaPem)
             // Some JVMs defer certificate validation to the first read; force it.
-            ssl.inputStream.read()
-            closeTlsClient(ssl)
+            untrusted.inputStream.read()
             fail("handshake should have failed for an untrusted CA")
         } catch (_: SSLHandshakeException) {
             // expected
         } catch (_: java.io.IOException) {
             // socket reset while handshaking is also acceptable
+        } finally {
+            // Always close the client socket: otherwise the server may sit in its handshake read until the
+            // socket timeout, which made the log assertion below timing-dependent on loaded CI machines.
+            runCatching { untrusted?.close() }
         }
         // The proxy must log a concise diagnosis (host + "install the local CA" hint) instead of silently
-        // breaking TLS for the app. Logging happens on the MITM worker, so poll briefly.
-        awaitTrue {
+        // breaking TLS for the app. Logging happens on the MITM worker after the socket closes (or after the
+        // handshake read times out), so poll generously to stay robust under CPU contention.
+        awaitTrue(timeoutMs = 15_000) {
             logger.messages.any { (_, text) -> text.contains("不信任用户 CA") }
         }
 

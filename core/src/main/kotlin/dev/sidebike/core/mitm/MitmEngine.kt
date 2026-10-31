@@ -188,7 +188,9 @@ class MitmEngine(
                 val message = e.message ?: e.javaClass.simpleName
                 if (message.contains("reset", ignoreCase = true) ||
                     message.contains("terminated", ignoreCase = true) ||
-                    message.contains("handshake", ignoreCase = true)
+                    message.contains("handshake", ignoreCase = true) ||
+                    message.contains("timed out", ignoreCase = true) ||
+                    message.contains("timeout", ignoreCase = true)
                 ) {
                     logger.warn(
                         TAG,
