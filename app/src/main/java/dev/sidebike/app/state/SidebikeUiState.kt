@@ -34,6 +34,10 @@ data class SidebikeUiState(
     val lockdownDetected: Boolean = false,
     /** 实际本地代理端口（31181 被占用时会回退到高位可用端口）。 */
     val effectiveProxyPort: Int = 31181,
+    /** 远程规则源刷新中（UI 展示进度）。 */
+    val ruleSourcesBusy: Boolean = false,
+    /** 网络诊断执行中（UI 展示进度）。 */
+    val diagnosticsRunning: Boolean = false,
 ) {
     val isBusy: Boolean get() = status == RunStatus.PREPARING || status == RunStatus.STARTING || status == RunStatus.STOPPING
 }

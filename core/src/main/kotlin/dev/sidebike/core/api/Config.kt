@@ -20,6 +20,13 @@ data class SidebikeConfig(
     val preSetIpList: Map<String, Map<String, Boolean>> = emptyMap(),
     val excludeIpList: Map<String, Boolean?> = emptyMap(),
     val domesticAllowList: List<String> = emptyList(),
+    /**
+     * 用户禁用的内置拦截规则 key（编码为 "域名\t路径"）：UI 删除内置规则时写入，
+     * RuleEngine 加载时跳过这些 key，避免下次启动被内置快照还原。
+     */
+    val disabledIntercepts: List<String> = emptyList(),
+    /** 远程规则源（可手动/自动更新）；解析结果合并进 intercepts / whiteList / domesticAllowList。 */
+    val ruleSources: List<RuleSource> = emptyList(),
 ) {
     companion object {
         const val CURRENT_VERSION = 1
@@ -189,4 +196,40 @@ data class InterceptAction(
     val status: Int? = null,
     val desc: String? = null,
     val remark: String? = null,
+)
+
+/** 远程规则源支持的格式（AUTO 按内容/URL 自动识别）。 */
+enum class RuleSourceFormat {
+    AUTO,
+
+    /** Dev-Sidebike/Dev-Sidecar 风格 JSON（intercepts/whiteList/domesticAllowList 等字段）。 */
+    SIDEBIKE_JSON,
+
+    /** Shadowrocket 规则列表（`.list`，DOMAIN-SUFFIX / DOMAIN / DOMAIN-KEYWORD 等）。 */
+    SHADOWROCKET_LIST,
+
+    /** 纯域名列表（每行一个域名，支持 # / ; / // 注释与 hosts 行）。 */
+    DOMAIN_LIST,
+}
+
+/**
+ * 用户可配置的远程规则源。`lastUpdatedMs` / `lastError` / `etag` 由客户端更新并持久化，
+ * 用于 UI 展示与增量拉取（If-None-Match / If-Modified-Since）。
+ */
+@Serializable
+data class RuleSource(
+    val id: String,
+    val name: String,
+    val url: String,
+    val format: RuleSourceFormat = RuleSourceFormat.AUTO,
+    val enabled: Boolean = true,
+    val autoUpdate: Boolean = true,
+    /** 自动更新间隔（小时）；<=0 表示只在手动点击时更新。 */
+    val updateIntervalHours: Int = 24,
+    val lastUpdatedMs: Long = 0,
+    val lastError: String? = null,
+    val etag: String? = null,
+    val lastModified: String? = null,
+    /** 最近一次成功导入的规则数量（仅展示用途）。 */
+    val lastImported: Int = 0,
 )

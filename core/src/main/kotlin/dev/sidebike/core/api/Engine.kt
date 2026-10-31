@@ -27,16 +27,33 @@ interface SidebikeEngine {
 
     fun stats(): EngineStats
 
+    /**
+     * DNS Provider 健康检查（真实发起一次轻量查询，用于"网络诊断"与设置页状态展示）。
+     * 默认实现允许返回空列表；不得抛出异常。
+     */
+    suspend fun dnsHealth(): List<DnsProviderHealth> = emptyList()
+
     fun logger(): SidebikeLogger
 
     /** 返回 CA 证书 PEM（若已启用/生成），供安装引导页导出；未启用 MITM 时返回 null。 */
     fun caCertificatePem(): String?
 
-    /** 确保 CA 已生成并返回 PEM（MITM 开启时由 Controller 调用）。 */
+    /**
+     * 确保 CA 已生成并返回 PEM。与 MITM 开关无关：证书安装引导页需要在开启 MITM 之前
+     * 就能生成并安装 CA，因此实现必须始终可生成（幂等）。
+     */
     fun ensureCaCertificate(): String?
 
     fun close()
 }
+
+/** 单个 DNS Provider 的健康检查结果。 */
+data class DnsProviderHealth(
+    val provider: String,
+    val ok: Boolean,
+    val latencyMs: Long,
+    val error: String? = null,
+)
 
 /**
  * 引擎工厂：由 `engine/DefaultSidebikeEngine` 实现并注册。
