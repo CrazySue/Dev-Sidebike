@@ -342,6 +342,11 @@ class MitmEngineTest {
         } catch (_: java.io.IOException) {
             // socket reset while handshaking is also acceptable
         }
+        // The proxy must log a concise diagnosis (host + "install the local CA" hint) instead of silently
+        // breaking TLS for the app. Logging happens on the MITM worker, so poll briefly.
+        awaitTrue {
+            logger.messages.any { (_, text) -> text.contains("不信任用户 CA") }
+        }
 
         // 2) A correctly-trusting client still works afterwards.
         val ssl = MitmTestClient.connect(proxy.port, "trust.test", upstream.port, caPem)

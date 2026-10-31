@@ -119,6 +119,9 @@ class HttpProxyServer(
     /** Hosts already warned about the MIRROR_PROXY-without-MITM downgrade (avoid log spam per connection). */
     private val warnedMirrorFallbackHosts: MutableSet<String> = Collections.newSetFromMap(ConcurrentHashMap<String, Boolean>())
 
+    /** Hosts already warned about the "MITM requested but CA unavailable" direct-tunnel downgrade. */
+    private val warnedMitmUnavailableHosts: MutableSet<String> = Collections.newSetFromMap(ConcurrentHashMap<String, Boolean>())
+
     // ---- statistics (exposed to the engine via trafficSnapshot()) ----
     private val totalConnections = AtomicLong(0)
     private val successfulConnections = AtomicLong(0)
@@ -224,6 +227,12 @@ class HttpProxyServer(
     internal fun isMitmEnabled(): Boolean = config.proxy.mitmEnabled || config.mitm.enabled
 
     internal fun caPemIfExists(): String? = mitmEngine.caPemIfExists()
+
+    /**
+     * Engine health hook: true only when MITM is enabled in the current config AND the CA material is
+     * usable (the same preflight used before terminating any TLS connection).
+     */
+    internal fun mitmReady(): Boolean = isMitmEnabled() && mitmEngine.ensureReady()
 
     internal fun ensureCaPem(): String? = try {
         mitmEngine.ensureCaPem()
@@ -410,8 +419,20 @@ class HttpProxyServer(
             return ProxyResult(false, 0, 0, "synthetic response requires MITM: $msg")
         }
         if (mitmEnabled && !whitelisted && requiresMitm(host, plan, domainAction)) {
-            val result = mitmEngine.handleConnect(client, host, port)
-            return ProxyResult(result.success, result.bytesUp, result.bytesDown, result.error)
+            if (mitmEngine.ensureReady()) {
+                val result = mitmEngine.handleConnect(client, host, port)
+                return ProxyResult(result.success, result.bytesUp, result.bytesDown, result.error)
+            }
+            // MITM was requested but the CA is missing/unreadable and cannot be generated: decrypting this
+            // host would make the client reject our certificate (all TLS broken). Degrade this host to a
+            // direct tunnel instead, warn once per host, and let the healthy non-MITM path serve traffic.
+            if (warnedMitmUnavailableHosts.add(host)) {
+                logger.warn(
+                    TAG,
+                    "MITM 不可用（CA 缺失），已降级直连: $host:$port（规则需要 MITM 但本机 CA 无法使用）",
+                )
+            }
+            return tunnel(client, RoutePlan(RouteKind.DIRECT, host, port, reason = "mitm-unavailable-direct"))
         }
         if (domainAction?.sni != null && !mitmEnabled) {
             logger.warn(
@@ -450,7 +471,10 @@ class HttpProxyServer(
             action.script != null ||
             action.tampermonkeyScript != null ||
             action.cacheDays != null ||
-            action.status != null
+            action.status != null ||
+            // Abort rules must be evaluated inside the decrypted request (per-path REJECT), so they also
+            // require MITM when it is available.
+            action.abort != null
     }
 
     /** Transparent byte tunnel: used for DIRECT/MIRROR_PROXY CONNECTs that need no HTTP rewriting. */

@@ -37,16 +37,28 @@ import javax.net.ssl.X509TrustManager
 interface DnsTransport {
     /** 交换一次 DNS 报文；失败/超时/无可用 bootstrap 返回 null（由调用方回退）。 */
     suspend fun exchange(endpoint: DnsEndpoint, query: ByteArray, timeoutMs: Int): ByteArray?
+
+    /**
+     * 最近一次该 provider 的失败详情（诊断/health 用，成功后可清空）。
+     * 默认实现返回 null，实现方可覆盖以暴露 SNI/握手/证书等具体错误。
+     */
+    fun lastError(provider: String): String? = null
 }
 
 class SocketDnsTransport(
     private val logger: SidebikeLogger = NoopSidebikeLogger,
 ) : DnsTransport {
 
+    private val lastErrorByProvider = java.util.concurrent.ConcurrentHashMap<String, String>()
+
+    override fun lastError(provider: String): String? = lastErrorByProvider[provider]
+
     override suspend fun exchange(endpoint: DnsEndpoint, query: ByteArray, timeoutMs: Int): ByteArray? =
         withContext(Dispatchers.IO) {
             if (!endpoint.usable) {
-                logger.warn(TAG, "provider '${endpoint.name}' 无可用 bootstrap IP，跳过（禁止系统 DNS 自举）")
+                val message = "无可用 bootstrapIps（server 非字面 IP），禁止使用系统 DNS 自举"
+                lastErrorByProvider[endpoint.name] = message
+                logger.warn(TAG, "provider '${endpoint.name}' $message")
                 return@withContext null
             }
             val safeTimeout = timeoutMs.coerceIn(200, 30_000)
@@ -57,9 +69,16 @@ class SocketDnsTransport(
                     DnsProtocol.DOT -> dotExchange(endpoint, query, safeTimeout)
                     DnsProtocol.DOH -> dohExchange(endpoint, query, safeTimeout)
                     DnsProtocol.AUTO -> udpExchange(endpoint, query, safeTimeout)
+                }?.also {
+                    lastErrorByProvider.remove(endpoint.name)
                 }
             } catch (e: Exception) {
-                logger.debug(TAG, "provider '${endpoint.name}' 查询失败: ${e.message}")
+                val detail = "${e.javaClass.simpleName}: ${e.message}"
+                lastErrorByProvider[endpoint.name] = detail
+                logger.debug(
+                    TAG,
+                    "provider '${endpoint.name}' 查询失败（sni=${endpoint.tlsServerName ?: "(none)"}）: $detail",
+                )
                 null
             }
         }
@@ -106,9 +125,36 @@ class SocketDnsTransport(
 
     private fun dotExchange(endpoint: DnsEndpoint, query: ByteArray, timeoutMs: Int): ByteArray? {
         val ip = endpoint.connectIps().firstOrNull() ?: return null
-        connectTls(ip, endpoint.port, timeoutMs, endpoint.tlsServerName, endpoint.trustAllCerts).use { socket ->
+        connectTlsWithDecoyFallback(endpoint, ip, endpoint.port, timeoutMs).use { socket ->
             writeLengthPrefixed(socket, query)
             return readLengthPrefixed(socket, timeoutMs)
+        }
+    }
+
+    /**
+     * 与上游 Dev-Sidecar 相同的 "SNI 诱饵" 能力：按配置的 `provider.sni` 连接 TLS；
+     * 若目标边缘不接受该诱饵 SNI（handshake failure，实测 Cloudflare 系常见），自动回退到
+     * 「真实主机名 SNI」重试一次，并记录 warning——而不是把整个 provider 当失败。
+     */
+    private fun connectTlsWithDecoyFallback(
+        endpoint: DnsEndpoint,
+        ip: String,
+        port: Int,
+        timeoutMs: Int,
+    ): SSLSocket {
+        try {
+            return connectTls(ip, port, timeoutMs, endpoint.tlsServerName, endpoint.trustAllCerts)
+        } catch (e: Exception) {
+            val realServerName = endpoint.host.takeIf { !IpLiterals.isLiteral(it) }
+            if (endpoint.tlsServerName == null || endpoint.tlsServerName == realServerName) {
+                throw e as? Exception ?: IllegalStateException(e)
+            }
+            logger.warn(
+                TAG,
+                "provider '${endpoint.name}' 使用诱饵 SNI='${endpoint.tlsServerName}' 握手失败" +
+                    "（${e.javaClass.simpleName}: ${e.message}），回退真实 SNI='${realServerName ?: "(none)"}' 重试",
+            )
+            return connectTls(ip, port, timeoutMs, realServerName, endpoint.trustAllCerts)
         }
     }
 
@@ -144,7 +190,7 @@ class SocketDnsTransport(
     private fun dohExchange(endpoint: DnsEndpoint, query: ByteArray, timeoutMs: Int): ByteArray? {
         val ip = endpoint.connectIps().firstOrNull() ?: return null
         val socket: Socket = if (endpoint.secure) {
-            connectTls(ip, endpoint.port, timeoutMs, endpoint.tlsServerName, endpoint.trustAllCerts)
+            connectTlsWithDecoyFallback(endpoint, ip, endpoint.port, timeoutMs)
         } else {
             Socket().apply {
                 tcpNoDelay = true

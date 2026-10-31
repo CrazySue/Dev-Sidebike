@@ -18,6 +18,7 @@ import java.io.IOException
 import java.net.Socket
 import java.net.SocketTimeoutException
 import javax.net.ssl.SSLException
+import javax.net.ssl.SSLHandshakeException
 import javax.net.ssl.SSLSocket
 
 /**
@@ -59,11 +60,42 @@ class MitmEngine(
     @Volatile
     private var serverTls: ServerTls? = null
 
+    @Volatile
+    private var caFailureLogged: Boolean = false
+
     /** CA PEM if it already exists (never generates). */
     fun caPemIfExists(): String? = caStore.peekPem()
 
     /** Loads or generates the CA and returns its PEM. */
     fun ensureCaPem(): String = caStore.ensure().caCertificatePem
+
+    /**
+     * Preflight for the proxy: can we actually terminate TLS right now?
+     *
+     * When MITM is enabled but the CA file is missing/unreadable and cannot be (re)generated (e.g. the app
+     * private dir is not writable), MITM must NOT be attempted per connection: the proxy degrades every
+     * affected host to a direct tunnel instead of breaking all TLS with a handshake the client cannot verify.
+     * Never throws; logs the root cause once.
+     */
+    fun ensureReady(): Boolean {
+        return try {
+            serverTls()
+            true
+        } catch (e: Throwable) {
+            if (!caFailureLogged) {
+                caFailureLogged = true
+                logger.error(
+                    TAG,
+                    "MITM 不可用（CA 缺失/无法生成），已降级为直连隧道: ${e.message ?: e.javaClass.simpleName}",
+                    e,
+                )
+            }
+            false
+        }
+    }
+
+    /** True when the CA material is available and the TLS server context can be built (idempotent). */
+    fun isReady(): Boolean = ensureReady()
 
     private fun serverTls(): ServerTls = serverTls ?: synchronized(contextLock) {
         serverTls ?: TlsSupport.serverTls(caStore.ensure()) { null }.also { serverTls = it }
@@ -82,6 +114,7 @@ class MitmEngine(
         clientOut.flush()
 
         var ssl: SSLSocket? = null
+        var handshakeCompleted = false
         try {
             val tls = serverTls()
             // Observe the ClientHello SNI through an SNIMatcher (portable on JVM + Android); the key manager
@@ -91,12 +124,27 @@ class MitmEngine(
             ssl.soTimeout = config.proxy.readTimeoutMs
             try {
                 tls.keyManager.withHandshakeContext(targetHost, sniCapture) { ssl.startHandshake() }
+                handshakeCompleted = true
             } catch (e: SSLException) {
-                // Most common cause: the client does not trust the local CA (expected when the user has not
-                // installed it) or a non-TLS protocol was sent to an intercepted port. Nothing can be
-                // answered inside a broken TLS channel; log and drop.
-                logger.debug(TAG, "TLS handshake with client failed for $targetHost:$targetPort: ${e.message}")
-                return MitmResult(false, 0, 0, "client TLS handshake failed: ${e.message}")
+                // Most common causes: the client app does not trust the locally generated CA (expected when
+                // the user has not installed it - Android 7+ apps only trust user CAs when their network
+                // security config allows it), certificate pinning, or a non-TLS protocol sent to an
+                // intercepted port. Nothing can be answered inside a broken TLS channel: log a concise
+                // diagnosis (at WARN so users can find it) and drop the connection cleanly.
+                val message = e.message ?: e.javaClass.simpleName
+                val looksLikeNonTls = message.contains("unrecognized", ignoreCase = true) ||
+                    message.contains("plaintext", ignoreCase = true) ||
+                    message.contains("not an SSL", ignoreCase = true)
+                if (looksLikeNonTls) {
+                    logger.debug(TAG, "客户端在 MITM 端口发送了非 TLS 数据: $targetHost:$targetPort: $message")
+                } else {
+                    logger.warn(
+                        TAG,
+                        "MITM TLS 握手失败: $targetHost:$targetPort，可能原因：应用不信任用户 CA（请在系统设置中" +
+                            "安装本机 CA）或启用了证书固定（certificate pinning）; 错误: $message",
+                    )
+                }
+                return MitmResult(false, 0, 0, "client TLS handshake failed: $message")
             }
             logger.debug(TAG, "MITM TLS established: connect=$targetHost, sni=${sniCapture.sni ?: "(none)"}")
 
@@ -133,7 +181,26 @@ class MitmEngine(
             logger.debug(TAG, "MITM idle timeout for $targetHost:$targetPort")
             return MitmResult(false, 0, 0, "idle timeout: ${e.message}")
         } catch (e: IOException) {
-            logger.debug(TAG, "MITM I/O error for $targetHost:$targetPort: ${e.message}")
+            if (!handshakeCompleted) {
+                // A reset before the handshake finished is almost always the client aborting because it does
+                // not trust our CA (or a non-TLS peer); surface the same concise diagnosis as the SSL path so
+                // users can find the CA-install hint in the log.
+                val message = e.message ?: e.javaClass.simpleName
+                if (message.contains("reset", ignoreCase = true) ||
+                    message.contains("terminated", ignoreCase = true) ||
+                    message.contains("handshake", ignoreCase = true)
+                ) {
+                    logger.warn(
+                        TAG,
+                        "MITM TLS 握手中断: $targetHost:$targetPort，可能原因：应用不信任用户 CA（请在系统设置中" +
+                            "安装本机 CA）或启用了证书固定; 错误: $message",
+                    )
+                } else {
+                    logger.debug(TAG, "MITM handshake I/O error for $targetHost:$targetPort: $message")
+                }
+            } else {
+                logger.debug(TAG, "MITM I/O error for $targetHost:$targetPort: ${e.message}")
+            }
             return MitmResult(false, 0, 0, e.message)
         } finally {
             try {

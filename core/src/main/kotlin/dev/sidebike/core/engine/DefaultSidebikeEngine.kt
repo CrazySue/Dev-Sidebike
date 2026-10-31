@@ -1,6 +1,7 @@
 package dev.sidebike.core.engine
 
 import dev.sidebike.core.api.DnsResolver
+import dev.sidebike.core.api.DnsProviderHealth
 import dev.sidebike.core.api.EngineStats
 import dev.sidebike.core.api.SidebikeConfig
 import dev.sidebike.core.api.SidebikeEngine
@@ -146,6 +147,17 @@ class DefaultSidebikeEngine(
 
     override fun currentConfig(): SidebikeConfig = config
 
+    /**
+     * DNS Provider 健康检查（0.1.1 契约）：委托给 [DnsResolver.health]（backend-dns 实现真实轻量查询；
+     * 未实现时接口默认返回空列表）。容错：任何异常都返回空列表，绝不抛出。
+     */
+    override suspend fun dnsHealth(): List<DnsProviderHealth> = try {
+        dnsResolver.health()
+    } catch (e: Exception) {
+        log.warn(TAG, "dnsHealth failed: ${e.message}", e)
+        emptyList()
+    }
+
     override suspend fun resolveRawDnsQuery(query: ByteArray): ByteArray? = try {
         dnsResolver.resolveRawQuery(query)
     } catch (e: Exception) {
@@ -176,6 +188,22 @@ class DefaultSidebikeEngine(
     }
 
     override fun logger(): SidebikeLogger = log
+
+    /**
+     * MITM readiness health (0.1.1 item 2, concrete extension - not part of the frozen interface):
+     * true only when MITM is enabled in the current config AND the local CA is usable, i.e. exactly the
+     * preflight the proxy performs before terminating TLS. When false the proxy degrades rule-matched hosts
+     * to direct tunnels; the UI can surface this as a warning.
+     */
+    fun mitmReady(): Boolean = try {
+        proxy.mitmReady()
+    } catch (e: Exception) {
+        log.warn(TAG, "mitmReady check failed: ${e.message}", e)
+        false
+    }
+
+    /** True when a CA certificate has been generated and is readable (independent of the MITM toggle). */
+    fun caGenerated(): Boolean = proxy.caPemIfExists() != null
 
     override fun caCertificatePem(): String? {
         if (!isMitmEnabled()) return null

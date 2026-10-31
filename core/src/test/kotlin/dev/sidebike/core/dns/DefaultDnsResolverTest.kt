@@ -54,7 +54,8 @@ class DefaultDnsResolverTest {
 
         val first = resolver.resolve("example.com")
         assertEquals(listOf("1.2.3.4", "1.2.3.5"), first.ips)
-        assertEquals("udp", first.provider)
+        // UDP-only 的境外域名结果会被标记为 "(unverified)"（防污染透明度，0.1.1-alpha）
+        assertTrue("provider 应为 udp/udp(unverified)，实际: ${first.provider}", first.provider.startsWith("udp"))
         assertFalse(first.fromCache)
         assertEquals(1, transport.calls.size)
 
@@ -125,7 +126,7 @@ class DefaultDnsResolverTest {
         )
         val answer = resolver.resolve("race.example.com")
         assertEquals(listOf("6.6.6.6"), answer.ips)
-        assertEquals("fast", answer.provider)
+        assertTrue("provider 应为 fast/fast(unverified)，实际: ${answer.provider}", answer.provider.startsWith("fast"))
     }
 
     @Test
@@ -148,7 +149,7 @@ class DefaultDnsResolverTest {
         )
         val answer = resolver.resolve("fallback.example.com")
         assertEquals(listOf("3.3.3.3"), answer.ips)
-        assertEquals("good", answer.provider)
+        assertTrue("provider 应为 good/good(unverified)，实际: ${answer.provider}", answer.provider.startsWith("good"))
     }
 
     @Test
@@ -195,7 +196,8 @@ class DefaultDnsResolverTest {
 
     @Test
     fun `raw query returns valid reply without tc and with trimming`() = runBlocking {
-        val manyIps = (1..100).map { "10.0.0.$it" }
+        // 注意：解析器对境外域名的 UDP 应答会过滤私有/保留 IP（防投毒），此处必须用公网 IP
+        val manyIps = (1..100).map { "1.1.1.$it" }
         val transport = FakeDnsTransport().apply { respond("udp", manyIps) }
         val resolver = resolver(config(), transport)
 

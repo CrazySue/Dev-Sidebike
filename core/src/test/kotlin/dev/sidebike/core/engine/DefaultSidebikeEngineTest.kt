@@ -272,4 +272,86 @@ class DefaultSidebikeEngineTest {
             upstream.close()
         }
     }
+
+    // ------------------------------------------------------------------------------------------
+    // 0.1.1: dnsHealth delegation + MITM readiness health
+    // ------------------------------------------------------------------------------------------
+
+    private fun noopResolver(health: suspend () -> List<dev.sidebike.core.api.DnsProviderHealth> = { emptyList() }): DnsResolver =
+        object : DnsResolver {
+            override suspend fun resolve(host: String): DnsAnswer =
+                DnsAnswer(host, listOf("1.2.3.4"), "fake", false, 60, 1)
+
+            override suspend fun resolveRawQuery(query: ByteArray): ByteArray? = null
+            override fun clearCache() = Unit
+            override fun stats(): DnsStats = DnsStats()
+            override suspend fun health() = health()
+        }
+
+    @Test
+    fun dnsHealthDelegatesToResolver() = runBlocking {
+        val engine = DefaultSidebikeEngine(
+            dataDir = newTempDir(),
+            initialConfig = TestConfigs.baseConfig(port = 0),
+            dnsResolverFactory = { _, _ ->
+                noopResolver {
+                    listOf(
+                        dev.sidebike.core.api.DnsProviderHealth("aliyun", ok = true, latencyMs = 12),
+                        dev.sidebike.core.api.DnsProviderHealth("cf-DoH", ok = false, latencyMs = 500, error = "timeout"),
+                    )
+                }
+            },
+        )
+        engines.add(engine)
+        val health = engine.dnsHealth()
+        assertEquals(2, health.size)
+        assertEquals("aliyun", health[0].provider)
+        assertTrue(health[0].ok)
+        assertEquals(12, health[0].latencyMs)
+        assertFalse(health[1].ok)
+        assertEquals("timeout", health[1].error)
+    }
+
+    @Test
+    fun dnsHealthNeverThrowsAndFallsBackToEmptyList() = runBlocking {
+        val engine = DefaultSidebikeEngine(
+            dataDir = newTempDir(),
+            initialConfig = TestConfigs.baseConfig(port = 0),
+            dnsResolverFactory = { _, _ -> noopResolver { throw RuntimeException("health probe exploded") } },
+        )
+        engines.add(engine)
+        assertTrue(engine.dnsHealth().isEmpty())
+    }
+
+    @Test
+    fun mitmReadyReflectsToggleAndCaAvailability() {
+        // MITM disabled -> never "ready" (the proxy will not terminate TLS), but the CA can still be generated.
+        val disabled = newEngine(TestConfigs.baseConfig(port = 0, mitmEnabled = false))
+        assertFalse(disabled.mitmReady())
+        assertFalse(disabled.caGenerated())
+        assertNotNull("ensureCaCertificate must work regardless of the MITM toggle", disabled.ensureCaCertificate())
+        assertTrue(disabled.caGenerated())
+        assertFalse("still not ready while MITM is disabled", disabled.mitmReady())
+
+        // MITM enabled + writable data dir -> ready (CA generated on demand).
+        val enabled = newEngine(TestConfigs.baseConfig(port = 0, mitmEnabled = true))
+        assertNotNull(enabled.ensureCaCertificate())
+        assertTrue(enabled.mitmReady())
+
+        // MITM enabled but the CA cannot be written (dataDir is a regular file) -> not ready, no throw.
+        val brokenDir = Files.createTempFile("ds-engine-ca-broken", ".bin").toFile()
+        try {
+            val broken = DefaultSidebikeEngine(
+                dataDir = brokenDir,
+                initialConfig = TestConfigs.baseConfig(port = 0, mitmEnabled = true),
+                dnsResolverFactory = { _, _ -> noopResolver() },
+            )
+            engines.add(broken)
+            assertFalse(broken.mitmReady())
+            assertNull(broken.ensureCaCertificate())
+            assertFalse(broken.caGenerated())
+        } finally {
+            brokenDir.delete()
+        }
+    }
 }

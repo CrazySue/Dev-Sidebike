@@ -67,7 +67,7 @@ class DefaultRuleEngine(
         compiled = Compiled(config, logger)
         generation++
         synchronized(planLock) { planCache.clear() }
-        logger.info(TAG, "规则引擎配置已更新: intercepts=${config.intercepts.size} 域, whitelist=${config.whiteList.size}")
+        logger.info(TAG, "规则引擎配置已更新: intercepts=${config.intercepts.size} 域, whitelist=${config.whiteList.size}, disabled=${config.disabledIntercepts.size}")
     }
 
     fun configVersion(): Int = generation
@@ -152,7 +152,9 @@ class DefaultRuleEngine(
             )
         }
 
-        if (isAbortMarker(action.success)) {
+        // `abort = true` is the 0.1.1 frozen-contract field (imported Shadowrocket REJECT rules, ad-block
+        // lists, hosts-based blockers); the legacy `success: { abort: true }` marker is kept for old configs.
+        if (action.abort == true || isAbortMarker(action.success)) {
             return RoutePlan(RouteKind.REJECT, host, port, sni = action.sni, action = action, reason = "abort")
         }
         if (action.success != null) {
@@ -198,9 +200,20 @@ class DefaultRuleEngine(
     private class Compiled(config: SidebikeConfig, logger: SidebikeLogger) {
         val version: Int = config.version
 
+        /** Disabled built-in rules: `"domain\tpath"` keys (UI deletes a built-in rule -> persisted here). */
+        private val disabledIntercepts: Set<String> =
+            config.disabledIntercepts.filter { it.isNotBlank() }.toHashSet()
+
         private val domainRules: DomainPatternMatcher<List<CompiledPath>> =
             DomainPatternMatcher(
-                config.intercepts.mapValues { (_, paths) -> compilePaths(paths, logger) },
+                buildMap {
+                    for ((domain, paths) in config.intercepts) {
+                        val compiledPaths = compilePaths(domain, paths, logger)
+                        // A domain whose every path rule is disabled disappears entirely, so
+                        // requiresMitm()/plan() treat it as "no rule" again.
+                        if (compiledPaths.isNotEmpty()) put(domain, compiledPaths)
+                    }
+                },
                 logger,
             )
 
@@ -255,9 +268,14 @@ class DefaultRuleEngine(
         }
 
         private fun compilePaths(
+            domain: String,
             paths: Map<String, InterceptAction>,
             logger: SidebikeLogger,
-        ): List<CompiledPath> = paths.map { (pattern, action) ->
+        ): List<CompiledPath> = paths.entries.mapNotNull { (pattern, action) ->
+            if (disabledIntercepts.contains("$domain\t$pattern")) {
+                logger.debug(TAG, "跳过已禁用的内置规则: $domain\t$pattern")
+                return@mapNotNull null
+            }
             CompiledPath(pattern, compilePathRegex(pattern, logger), action)
         }
 
@@ -302,6 +320,7 @@ class DefaultRuleEngine(
                 responseReplace = override.responseReplace ?: base.responseReplace,
                 cacheDays = override.cacheDays ?: base.cacheDays,
                 status = override.status ?: base.status,
+                abort = override.abort ?: base.abort,
                 desc = override.desc ?: base.desc,
                 remark = override.remark ?: base.remark,
             )
