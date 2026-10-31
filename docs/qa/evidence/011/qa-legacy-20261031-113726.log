@@ -1,0 +1,8 @@
+﻿=== QA FLOW SUMMARY: legacy (20261031-113726) ===
+  [PASS] legacy-seed-config - seed legacy config (mitm=true, no CA) shared_prefs/dev_sidebike_config.xml
+  [FAIL] legacy-auto-downgrade - legacy mitm=true auto-disables when CA missing texts=
+  [FAIL] legacy-banner - downgrade banner shown on home banner=
+  [PASS] legacy-vpn-starts - VPN starts with downgraded direct mode 
+  [FAIL] legacy-direct-connect - foreign CONNECT proxied without MITM/CA HTTP/1.1 408 Proxy connect timeout 
+  [FAIL] legacy-no-cert-unknown - no CERTIFICATE_UNKNOWN storm count=4
+RESULT: PASS=2 FAIL=4 BLOCKED=0 SKIP=0

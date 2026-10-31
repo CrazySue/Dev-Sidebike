@@ -1,0 +1,8 @@
+﻿=== QA FLOW SUMMARY: ca (20261031-114124) ===
+  [PASS] ca-install-button - install CA button exists 
+  [PASS] ca-confirm-dialog - MD3 confirm dialog (not black-only screen) texts=CA 证书状态|未安装|开启 MITM 需要安装并信任本应用的 CA 证书，安装前 MITM 改写不可用。|生成并安装证书|导出证书到文件（.crt）|重新检测
+  [+] ca-lockscreen-branch - no-lock-screen branch shows guidance or fallback (top= dev.sidebike.app.debug/dev.sidebike.app.MainActivity
+  [PASS] ca-no-black-screen - no black-only installer overlay avgBrightness=142
+  [FAIL] ca-system-installer-with-lock - system installer/settings launched install button missing
+  [PASS] ca-export-crt - .crt file export flow top=com.google.android.documentsui/com.android.documentsui.picker.PickActivity
+RESULT: PASS=4 FAIL=1 BLOCKED=0 SKIP=0

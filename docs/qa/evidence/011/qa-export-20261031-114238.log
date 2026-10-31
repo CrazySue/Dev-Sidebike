@@ -1,0 +1,4 @@
+﻿=== QA FLOW SUMMARY: export (20261031-114238) ===
+  [PASS] env - launch app dev.sidebike.app.debug/dev.sidebike.app.MainActivity
+  [FAIL] export-entry - 导出 entry exists no 导出 button
+RESULT: PASS=1 FAIL=1 BLOCKED=0 SKIP=0

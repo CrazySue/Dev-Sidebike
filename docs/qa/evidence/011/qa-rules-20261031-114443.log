@@ -1,0 +1,10 @@
+﻿=== QA FLOW SUMMARY: rules (20261031-114443) ===
+  [PASS] env - launch app dev.sidebike.app.debug/dev.sidebike.app.MainActivity
+  [PASS] rules-count-visible - rules count visible count=共 69 个域名 · 77 条路径规则 · 0 个直连放行
+  [PASS] rules-add-dialog - add-rule dialog renders texts=添加规则|域名 pattern|.*|路径正则|动作|镜像目标|拦截（abort）|SNI 伪装
+  [FAIL] rules-add-save - custom rule saved and visible 
+  [BLOCKED] rules-tab-直连放行 - rules tab 直连放行 opens seen=False
+  [BLOCKED] rules-tab-国内域名 - rules tab 国内域名 opens seen=False
+  [BLOCKED] rules-tab-规则源 - rules tab 规则源 opens seen=False
+  [BLOCKED] direct-pass-entry - direct-pass/domestic list editable entry visible labels=
+RESULT: PASS=3 FAIL=1 BLOCKED=4 SKIP=0

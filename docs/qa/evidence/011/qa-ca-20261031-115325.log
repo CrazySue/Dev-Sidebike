@@ -1,0 +1,8 @@
+﻿=== QA FLOW SUMMARY: ca (20261031-115325) ===
+  [FAIL] ca-install-button - install CA button exists 
+  [FAIL] ca-confirm-dialog - MD3 confirm dialog (not black-only screen) texts=重新检测|导出 CA 证书|通用|开机自启动|系统重启后自动拉起 VPN 服务|网络诊断
+  [FAIL] ca-lockscreen-branch - no-lock-screen branch shows guidance or fallback (top=dev.sidebike.app.debug/dev.sidebike.app.MainActivity) hint=
+  [PASS] ca-no-black-screen - no black-only installer overlay avgBrightness=238
+  [+] ca-system-installer-with-lock - system installer/settings launched when device has lock (top= dev.sidebike.app.debug/dev.sidebike.app.MainActivity
+  [BLOCKED] ca-export-crt - .crt file export entry exists no export-to-file button
+RESULT: PASS=1 FAIL=3 BLOCKED=1 SKIP=0

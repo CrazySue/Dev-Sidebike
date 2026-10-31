@@ -26,7 +26,11 @@ function Adb {
     foreach ($part in $args) { $flat += ($part -split '\s+' | Where-Object { $_ -ne '' }) }
     return (& $script:Adb $flat 2>&1 | Out-String)
 }
-function Adb-Raw {
+function Adb-Shell([string]$cmd) {
+    # Single-string remote shell command: adb receives ONE argument and executes it through the
+    # device sh -c, so pipelines/quotes/redirects work. NEVER use Adb (flattened) for these.
+    return (& $script:Adb shell $cmd 2>&1 | Out-String)
+}function Adb-Raw {
     $flat = @()
     foreach ($part in $args) { $flat += $part }
     return (& $script:Adb $flat 2>&1 | Out-String)
@@ -163,6 +167,9 @@ function Qa-TapText([string]$text, [int]$tries = 6, [int]$delaySec = 1, [switch]
     for ($i = 1; $i -le $tries; $i++) {
         $c = Qa-FindCenter $text -Exact:$Exact
         if ($c) { Qa-Tap $c[0] $c[1]; Qa-Log "[tap] '$text' at $($c[0]),$($c[1])"; Start-Sleep -Seconds 1; return $true }
+        # The UiDump cache from the previous screen can be stale right after navigation: force
+        # a fresh dump on every retry (this was why the logs export FAB was missed).
+        $null = Qa-UiDump -Force
         Start-Sleep -Seconds $delaySec
     }
     Qa-Log "[tap] NOT FOUND: '$text'"
@@ -202,6 +209,27 @@ function Qa-Screenshot([string]$name) {
     return $file
 }
 
+function Qa-TapClickableNearBottomRight([int]$minX = 500, [int]$minY = 1100, [int]$minW = 150, [int]$minH = 70) {
+    # Compose FABs often expose a clickable node without text/content-desc in uiautomator.
+    $ui = Qa-UiDump -Force
+    $best = $null
+    foreach ($m in [regex]::Matches($ui, '<node[^>]*>')) {
+        $n = $m.Value
+        if ($n -notmatch 'clickable="true"') { continue }
+        $b = [regex]::Match($n, 'bounds="\[(\d+),(\d+)\]\[(\d+),(\d+)\]"')
+        if (-not $b.Success) { continue }
+        $x1 = [int]$b.Groups[1].Value; $y1 = [int]$b.Groups[2].Value
+        $x2 = [int]$b.Groups[3].Value; $y2 = [int]$b.Groups[4].Value
+        if ($x1 -lt $minX -or $y1 -lt $minY -or ($x2 - $x1) -lt $minW -or ($y2 - $y1) -lt $minH) { continue }
+        if (-not $best -or $y2 -gt $best[3]) { $best = @($x1, $y1, $x2, $y2) }
+    }
+    if (-not $best) { Qa-Log '[tap-br] no candidates'; return $false }
+    $cx = [int](($best[0] + $best[2]) / 2); $cy = [int](($best[1] + $best[3]) / 2)
+    Qa-Tap $cx $cy
+    Qa-Log "[tap-br] at $cx,$cy bounds=[$($best[0]),$($best[1])][$($best[2]),$($best[3])]"
+    Start-Sleep -Seconds 1
+    return $true
+}
 # ---------------------------------------------------------------- results / verdicts
 function Qa-Result([string]$id, [string]$desc, [string]$status, [string]$detail = '') {
     # status: PASS | FAIL | BLOCKED | SKIP

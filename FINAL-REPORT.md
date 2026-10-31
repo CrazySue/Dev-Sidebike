@@ -19,8 +19,8 @@
 
 | 文件 | 说明 |
 | --- | --- |
-| `Dev-Sidebike-0.1.1-alpha-release.apk` | **推荐安装**。约 15 MB，release 签名（自签名），仅 ARM（arm64-v8a / armeabi-v7a），debuggable=false；sha256 以 `dist/SHA256SUMS.txt` / `delivery-manifest.json` 为准 |
-| `Dev-Sidebike-0.1.1-alpha-debug.apk` | 约 22 MB，debug 预交付物（含 x86_64/x86，便于模拟器/排障）；sha256 同上 |
+| `Dev-Sidebike-0.1.1-alpha-release.apk` | **推荐安装**。约 15.0 MB（14.95 MB），release 签名（自签名），仅 ARM（arm64-v8a / armeabi-v7a），debuggable=false；sha256 `6078121a…fdf2c93b` 以 `dist/SHA256SUMS.txt` / `delivery-manifest.json` 为准 |
+| `Dev-Sidebike-0.1.1-alpha-debug.apk` | 约 21.4 MB（21.35 MB），debug 预交付物（含 x86_64/x86，便于模拟器/排障）；sha256 `2412a8ff…f187c` 同上 |
 | `SHA256SUMS.txt` | 校验和（与 APK 实测一致） |
 | `delivery-manifest.json` | 版本 / git SHA / 构建时间 / 产物哈希 / 测试报告索引 |
 | `README.md` | 安装与使用说明、已知限制 |
@@ -85,17 +85,17 @@
 | 独立真实网络 JVM E2E | PASS：config 371ms / engine.start 321ms / 真实上游 DNS（preset、DoH、TTL）/ CONNECT+真实 TLS（github、tencent）/ stop 后 4ms 释放端口；APK 内 `rules.json` 40KB 与源码一致 |
 | 代码质量扫描 | 无 `TODO()` 生产炸弹；DNS provider 无系统 resolver 自举；代理仅监听 127.0.0.1；debug 故障注入仅存在于 debug source set；无密钥/CA 私钥日志泄漏 |
 
-### 4.1 QA 独立发布门禁（release APK）
+### 4.1 QA 独立发布门禁（0.1.1-alpha）
 
 | 项 | 结果 |
 | --- | --- |
-| `check_delivery.ps1` | **PASS**：6 个交付物齐全；SHA256SUMS 逐项一致；manifest version/gitSha/两 APK sha256 一致 |
-| Release APK 独立校验 | **PASS**：`dev.sidebike.app` / 0.1.1-alpha / versionCode 2 / debuggable=**false** / minSdk26 / targetSdk35 / ARM 双 ABI / 权限与 VPN 声明 / NSC(user CA) 合规 |
-| Release APK 真机实测（模拟器 API35） | **PASS**：安装→VPN 授权→E1 系统代理注册→E2 DNS 防污染（github 真实 IP）→HTTP `GET` 返回 200 / `CONNECT` 返回 200→统计字节（上行 621B/下行 2.3KB，QA-009 已关闭）→停止后 tun0 消失、DNS 恢复 |
-| 失败安全 | **PASS**：stop / force-stop / KILL_PROXY / CRASH_ENGINE 均自动恢复网络且可重启（E5/E5b） |
-| G1–G12 验收矩阵 | G1–G8、G11、G12 ✅；G9 MITM 真机端到端未做（默认关闭，core MITM/CA 20 单测 PASS，非阻塞）；G10 模拟器后台 PASS、真机 MIUI 待 owner M5 |
-| QA 对抗测试 | app `VpnCodecFuzzTest` 8/8 PASS；core `CoreAdversarialQaTest` 9/9 PASS（HTTP/DNS/JSON5/配置/规则 fuzz，全部 hermetic） |
-| **QA 最终结论** | **有条件通过（release gate PASS）**，条件仅为环境类未测项（MIUI/HyperOS 后台策略、Private DNS/lockdown 真机组合、MITM 默认关闭），已写入交付说明与 owner 真机清单（`_script/qa/device_verify.md`）。完整矩阵见 `docs/qa/05-test-report.md` §17。 |
+| `check_delivery.ps1` | **PASS**：交付物齐全；SHA256SUMS 逐项一致；manifest version=0.1.1-alpha / gitSha / 两 APK sha256 一致 |
+| APK 静态门禁 | **PASS**：debug（0.1.1-alpha-debug/vc2/4 ABI）与 release（ARM-only、debuggable=false、权限/VPN 声明/FGS/always-on/NSC 合规）均通过 |
+| 回归单测（流水线） | **core 246 / 0 failed / 1 skipped；app 265 / 0 failed / 2 skipped**；QA 对抗用例子集 core 9/9、app 8/8 PASS |
+| 模拟器 U1–U10（Android 15/API35 x86_64） | **U1 PASS**（.log 实际保存 42,379B；.zip 选项+单测覆盖，端到端 SAF 受自动化限制）；**U2 PASS**（legacy MITM 自动降级横幅+logcat、无 CA 开 MITM 被拒、CERTIFICATE_UNKNOWN 风暴=0、网络诊断 5 段）；**U3 PASS**（MD3 对话框无黑屏、锁屏未设置提示、无锁/有锁 PIN 两分支、系统 CertInstaller 启动、.crt 导出）；**U4/U8 PASS（初判，建议真机慢动作）**；**U5 PASS（逐帧静态证据，ripple 覆盖整圆角卡）**；**U6 PASS**（新增/编辑/删除自定义+内置规则均重启后持久化，`disabledIntercepts` 实测；URL 规则源导入、二次刷新 200→304 条件请求、无重复）；**U7 PASS**（国内域名 1236 个可见/可编辑/恢复默认）；**U9 PASS**（仅 1 个进度圈、无加速时长）；**U10 部分**（设置项已落地，上游逐项等价未独立审计） |
+| QA 证据 | `docs/qa/05-test-report.md`（U1–U10 矩阵/缺陷表/回归门禁）+ `docs/qa/evidence/011/`（127 个真 PNG/日志） |
+| 已知缺陷 | **QA-011-01**（S3，导出 FAB 无无障碍标签）已修复（contentDescription+回归测试）；**QA-011-03**（S3，规则源 ETag 未持久化导致二次刷新全量下载）已修复（持久化 ETag/Last-Modified + 手动刷新改条件请求 + 单测）；无 S0/S1/S2 缺陷 |
+| **QA 最终结论** | **0.1.1-alpha 通过（release gate PASS）**；条件仅为环境类未测项（真机 U4/U5/U8 慢动作复核、CA 有锁屏分支真机安装一次、.zip 端到端手动验证），已写入 owner 真机清单。 |
 
 ---
 

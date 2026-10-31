@@ -1,0 +1,1 @@
+﻿[11:49:27] rule-source-server listening on 0.0.0.0:18080 (emulator tries http://10.0.2.2:18080/rules.json and adb reverse http://127.0.0.1:18080/rules.json), duration=1800s

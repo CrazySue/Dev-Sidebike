@@ -1,0 +1,4 @@
+﻿=== QA FLOW SUMMARY: export (20261031-115927) ===
+  [PASS] env - launch app dev.sidebike.app.debug/dev.sidebike.app.MainActivity
+  [BLOCKED] export-format-choice - export offers text/zip format texts=代理服务|31181|代理端口|本地 HTTP/HTTPS 代理共用端口（默认 31181）|系统 HTTP 代理|通过 VpnService 下发系统代理（Android 10+）|国内域名直连|国内域名不进入代理链路，减少无谓开销
+RESULT: PASS=1 FAIL=0 BLOCKED=1 SKIP=0

@@ -1,0 +1,5 @@
+﻿=== QA FLOW SUMMARY: mitm (20261031-114035) ===
+  [FAIL] mitm-rejected-without-ca - MITM row found MITM row not found
+  [FAIL] mitm-vpn-starts - VPN starts with MITM off/no CA 
+  [BLOCKED] diagnostics-entry - 运行网络诊断 entry exists entry not found in settings
+RESULT: PASS=0 FAIL=2 BLOCKED=1 SKIP=0
