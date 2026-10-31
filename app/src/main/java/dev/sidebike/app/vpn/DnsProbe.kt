@@ -73,6 +73,12 @@ internal object DnsProbe {
     }
 
     /**
+     * IPv4 addresses from a DNS wire response (A records, in order). Used by network diagnostics.
+     * Never throws; returns an empty list for malformed/non-answer data.
+     */
+    fun extractIpv4Answers(response: ByteArray?): List<String> = DnsWire.extractIpv4Answers(response)
+
+    /**
      * Runs the readiness probe against [engine]. Never throws: resolver errors/timeouts are reported
      * as `false` (except coroutine cancellation, which is rethrown so service/controller teardown
      * stays cooperative).

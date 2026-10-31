@@ -225,6 +225,37 @@ internal object DnsWire {
     }
 
     /**
+     * Extracts the IPv4 addresses (A records) from a DNS wire response, in record order.
+     * Used by the network diagnostics report; returns an empty list for malformed/non-answer input.
+     */
+    fun extractIpv4Answers(response: ByteArray?, length: Int = response?.size ?: 0): List<String> {
+        if (response == null || length < HEADER_SIZE) return emptyList()
+        val info = inspect(response, length) ?: return emptyList()
+        if (!info.isResponse) return emptyList()
+        val addresses = ArrayList<String>(info.answerCount)
+        var offset = info.questionSectionEnd
+        repeat(info.answerCount) {
+            val name = readName(response, offset, length) ?: return emptyList()
+            val typeOffset = name.endOffset
+            if (typeOffset + 10 > length) return emptyList()
+            val type = u16(response, typeOffset)
+            val rdLength = u16(response, typeOffset + 8)
+            val rdataStart = typeOffset + 10
+            if (rdataStart + rdLength > length) return emptyList()
+            if (type == QTYPE_A && rdLength == 4) {
+                addresses += buildString {
+                    append(response[rdataStart].toInt() and 0xFF).append('.')
+                    append(response[rdataStart + 1].toInt() and 0xFF).append('.')
+                    append(response[rdataStart + 2].toInt() and 0xFF).append('.')
+                    append(response[rdataStart + 3].toInt() and 0xFF)
+                }
+            }
+            offset = rdataStart + rdLength
+        }
+        return addresses
+    }
+
+    /**
      * Builds a minimal DNS error/truncated reply for [query]:
      * header (with QR/RA set, RD echoed, [rcode] in the low four bits), the query's question
      * section only, and — when the query carried an additional section (i.e. EDNS0) — an empty OPT

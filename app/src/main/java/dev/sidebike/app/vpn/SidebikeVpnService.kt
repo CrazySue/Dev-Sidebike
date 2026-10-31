@@ -46,7 +46,6 @@ import java.net.InetSocketAddress
 import java.net.Socket
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
-import java.util.concurrent.atomic.AtomicLong
 
 /**
  * The single Android [VpnService] of Dev-Sidebike.
@@ -89,7 +88,6 @@ class SidebikeVpnService : VpnService() {
     private val startInFlight = AtomicBoolean(false)
     private val tearingDown = AtomicBoolean(false)
     private val consecutiveFailures = AtomicInteger(0)
-    private val dnsQueryCounter = AtomicLong(0)
     private val tunWriteLock = Any()
 
     @Volatile
@@ -149,6 +147,8 @@ class SidebikeVpnService : VpnService() {
             return START_NOT_STICKY
         }
 
+        // New VPN session: reset the tun pipeline counters surfaced in diagnostics/exports.
+        VpnRuntimeStats.reset()
         publish(VpnPhase.Preparing)
         val configStore = SidebikeConfigStore(this)
         if (!startInFlight.compareAndSet(false, true)) return stickyOrNot()
@@ -392,6 +392,9 @@ class SidebikeVpnService : VpnService() {
                         }
                     }
                     is DnsTunHandler.Classified.Ignored -> {
+                        // Count every ignored packet (IPv6 drops are reported separately in
+                        // diagnostics/export); only the first few are logged to avoid log floods.
+                        VpnRuntimeStats.recordIgnored(classified.reason)
                         if (ignoredLogBudget > 0) {
                             // Include a short hex prefix so field diagnostics can tell what kind of
                             // packet reached the tun (e.g. IPv6 vs malformed IPv4 vs fragments).
@@ -447,7 +450,7 @@ class SidebikeVpnService : VpnService() {
             return
         }
         writeToTun(output, reply)
-        dnsQueryCounter.incrementAndGet()
+        VpnRuntimeStats.recordDnsQuery()
     }
 
     private fun writeToTun(output: OutputStream, packet: ByteArray) {

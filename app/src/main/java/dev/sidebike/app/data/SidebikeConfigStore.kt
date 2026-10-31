@@ -402,10 +402,30 @@ class SidebikeConfigStore(context: Context) {
 
     private fun JsonPrimitive.contentOrNullSafe(): String? = if (this is JsonNull) null else content
 
+    // ---------------------------------------------------------------- managed list helpers (0.1.1)
+
+    /**
+     * Domains the user added through the "直连放行" editor. Tracked separately from
+     * `SidebikeConfig.whiteList` so removing them does not delete built-in whitelist exemptions
+     * (e.g. `*.icloud.com`) that the user never touched.
+     */
+    fun loadManagedDirectPassDomains(): List<String> =
+        prefs.getStringSet(KEY_MANAGED_DIRECT_PASS_DOMAINS, emptySet())?.toList()?.sorted().orEmpty()
+
+    fun saveManagedDirectPassDomains(domains: List<String>) {
+        // commit() keeps the managed list and the config blob consistent across components.
+        check(
+            prefs.edit()
+                .putStringSet(KEY_MANAGED_DIRECT_PASS_DOMAINS, domains.toSet())
+                .commit(),
+        ) { "Failed to persist managed direct-pass domains" }
+    }
+
     companion object {
         private const val TAG = "SidebikeConfigStore"
         const val PREFS_NAME: String = "dev_sidebike_config"
         const val KEY_CONFIG_JSON: String = "config_json_v1"
+        private const val KEY_MANAGED_DIRECT_PASS_DOMAINS: String = "managed_direct_pass_domains_v1"
 
         /** Default engine working directory below `filesDir` (CA files, future caches). */
         @Suppress("unused")

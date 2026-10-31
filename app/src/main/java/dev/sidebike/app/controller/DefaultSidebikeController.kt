@@ -1,5 +1,6 @@
 package dev.sidebike.app.controller
 
+import android.app.KeyguardManager
 import android.content.Context
 import android.net.ConnectivityManager
 import android.net.NetworkCapabilities
@@ -9,17 +10,28 @@ import android.util.Log
 import dev.sidebike.app.BuildConfig
 import dev.sidebike.app.R
 import dev.sidebike.app.data.CaInstaller
+import dev.sidebike.app.data.ConnectivityProbes
+import dev.sidebike.app.data.EngineBootstrap
+import dev.sidebike.app.data.JavaConnectivityProbes
+import dev.sidebike.app.data.LogExport
+import dev.sidebike.app.data.NetworkDiagnosticsRunner
+import dev.sidebike.app.data.RuleEditor
 import dev.sidebike.app.data.SidebikeConfigStore
 import dev.sidebike.app.data.SidebikeRuntime
 import dev.sidebike.app.state.RunStatus
 import dev.sidebike.app.state.SidebikeUiState
 import dev.sidebike.app.vpn.DnsProbe
 import dev.sidebike.app.vpn.VpnPhase
+import dev.sidebike.app.vpn.VpnRuntimeStats
 import dev.sidebike.app.vpn.VpnServiceBridge
 import dev.sidebike.core.api.EngineStats
 import dev.sidebike.core.api.LogEntry
 import dev.sidebike.core.api.LogLevel
 import dev.sidebike.core.api.ProxyDefaults
+import dev.sidebike.core.api.RuleSourceFormat
+import dev.sidebike.core.api.RuleSourceManager
+import dev.sidebike.core.api.RuleSourceManagerFactory
+import dev.sidebike.core.api.RuleSourceRefreshResult
 import dev.sidebike.core.api.SidebikeConfig
 import dev.sidebike.core.api.SidebikeEngine
 import dev.sidebike.core.api.TrafficStats
@@ -93,6 +105,11 @@ class DefaultSidebikeController internal constructor(
     portAllocator: ((Int) -> Int?)? = null,
     portProbe: ((Int) -> Boolean)? = null,
     networkStateDetector: NetworkStateDetector? = null,
+    caDetector: ((String, String?) -> CaInstaller.Detection)? = null,
+    connectivityProbes: ConnectivityProbes? = null,
+    ruleManagerProvider: (() -> RuleSourceManager?)? = null,
+    caInstallBundleBuilder: ((String) -> CaInstaller.InstallBundle?)? = null,
+    secureLockChecker: (() -> Boolean)? = null,
 ) : SidebikeController {
 
     private val appContext: Context = context.applicationContext
@@ -103,6 +120,34 @@ class DefaultSidebikeController internal constructor(
     private val probePort: (Int) -> Boolean = portProbe ?: { port -> isPortAccepting(port) }
     private val networkDetector: NetworkStateDetector =
         networkStateDetector ?: AndroidNetworkStateDetector(appContext)
+
+    /** CA-installed detection seam (real impl enumerates AndroidCAStore + TLS self-test). */
+    private val detectCaInstalled: (String, String?) -> CaInstaller.Detection =
+        caDetector ?: { pem, keyPem -> CaInstaller.isCaInstalled(pem, keyPem) }
+
+    /** Network probes seam for runNetworkDiagnostics (tests inject a fake to stay hermetic). */
+    private val probes: ConnectivityProbes = connectivityProbes ?: JavaConnectivityProbes()
+
+    /** Rule-source manager seam; defaults to the installed core factory (tolerant to absence). */
+    private val provideRuleManager: () -> RuleSourceManager? =
+        ruleManagerProvider ?: { resolveRuleSourceManager() }
+
+    /** CA install-bundle seam (real impl uses KeyChain; tests inject a deterministic bundle). */
+    private val buildCaInstallBundle: (String) -> CaInstaller.InstallBundle? =
+        caInstallBundleBuilder ?: { pem -> CaInstaller.buildInstallBundle(appContext, pem) }
+
+    /**
+     * Secure-lock-screen probe. The Android CA installer / credential UI requires a device lock
+     * (PIN/pattern/password); without one it can show a "black dialog with only a close button"
+     * (user issue 3), so prepareCaInstall() refuses to launch and returns a clear message instead.
+     */
+    private val isSecureLockConfigured: () -> Boolean =
+        secureLockChecker ?: { runCatching { isDeviceSecureReal() }.getOrDefault(false) }
+
+    private val ruleAutoRefreshInFlight = AtomicBoolean(false)
+
+    /** Guards duplicate "VPN 已运行" log/side effects when service callback and start flow race. */
+    private val runningEntryLogged = AtomicBoolean(false)
 
     private val _state = MutableStateFlow(
         SidebikeUiState(effectiveProxyPort = ProxyDefaults.DEFAULT_PORT),
@@ -149,7 +194,13 @@ class DefaultSidebikeController internal constructor(
                 .getOrDefault(SidebikeConfig())
             _state.update { it.copy(config = config, effectiveProxyPort = config.proxy.port) }
             log(LogLevel.INFO, "controller", "配置已加载（${config.dns.providers.size} 个 DNS provider）")
-            refreshCaInstalledInternal(config, allowEngineCreation = config.mitm.enabled)
+            val caInstalled = refreshCaInstalledInternal(
+                config = config,
+                allowEngineCreation = config.mitm.enabled || config.proxy.mitmEnabled,
+            )
+            // 0.1.1-alpha migration: legacy 0.1.0 configs enabled MITM without a trusted CA, which
+            // made every intercepted HTTPS request fail with CERTIFICATE_UNKNOWN (real-device report).
+            migrateLegacyMitmIfUnsafe(config, caInstalled)
         }
         scope.launch {
             VpnServiceBridge.phase.collect { phase -> onServicePhase(phase) }
@@ -224,23 +275,37 @@ class DefaultSidebikeController internal constructor(
 
     override suspend fun updateConfig(config: SidebikeConfig) {
         val previous = _state.value.config
-        runCatching { configStore.save(config) }
+        // 0.1.1-alpha safety net: never persist an enabled MITM without a trusted CA, even when the
+        // UI bypasses setMitmEnabled() (legacy config import / programmatic config update).
+        val safeConfig = if (!_state.value.caInstalled && (config.mitm.enabled || config.proxy.mitmEnabled)) {
+            log(LogLevel.WARN, "mitm", LEGACY_MITM_DOWNGRADE_MESSAGE)
+            _state.update {
+                it.copy(statusMessage = LEGACY_MITM_DOWNGRADE_MESSAGE, lastError = LEGACY_MITM_DOWNGRADE_MESSAGE)
+            }
+            config.copy(
+                mitm = config.mitm.copy(enabled = false),
+                proxy = config.proxy.copy(mitmEnabled = false),
+            )
+        } else {
+            config
+        }
+        runCatching { configStore.save(safeConfig) }
             .onFailure { Log.e(TAG, "Failed to persist config", it) }
-        _state.update { it.copy(config = config) }
+        _state.update { it.copy(config = safeConfig) }
         engine?.let { currentEngine ->
-            runCatching { currentEngine.updateConfig(config) }
+            runCatching { currentEngine.updateConfig(safeConfig) }
                 .onFailure { Log.w(TAG, "engine.updateConfig failed", it) }
         }
-        val addressesChanged = previous.dns.vpnDnsAddress != config.dns.vpnDnsAddress ||
-            previous.dns.tunAddress != config.dns.tunAddress
-        val proxyEndpointChanged = previous.proxy.port != config.proxy.port ||
-            previous.proxy.enabled != config.proxy.enabled ||
-            previous.proxy.setSystemProxy != config.proxy.setSystemProxy
+        val addressesChanged = previous.dns.vpnDnsAddress != safeConfig.dns.vpnDnsAddress ||
+            previous.dns.tunAddress != safeConfig.dns.tunAddress
+        val proxyEndpointChanged = previous.proxy.port != safeConfig.proxy.port ||
+            previous.proxy.enabled != safeConfig.proxy.enabled ||
+            previous.proxy.setSystemProxy != safeConfig.proxy.setSystemProxy
         if (_state.value.status == RunStatus.RUNNING && (addressesChanged || proxyEndpointChanged)) {
             _state.update { it.copy(statusMessage = "配置已保存，需重启 VPN 生效") }
             log(LogLevel.WARN, "controller", "VPN 地址/代理端口变更：需重启 VPN 后生效")
         }
-        refreshCaInstalledInternal(config, allowEngineCreation = config.mitm.enabled)
+        refreshCaInstalledInternal(safeConfig, allowEngineCreation = safeConfig.mitm.enabled)
     }
 
     override suspend fun reloadConfig() {
@@ -250,7 +315,8 @@ class DefaultSidebikeController internal constructor(
             runCatching { currentEngine.updateConfig(config) }
                 .onFailure { Log.w(TAG, "engine.updateConfig failed", it) }
         }
-        refreshCaInstalledInternal(config, allowEngineCreation = config.mitm.enabled)
+        val caInstalled = refreshCaInstalledInternal(config, allowEngineCreation = config.mitm.enabled)
+        migrateLegacyMitmIfUnsafe(config, caInstalled)
     }
 
     override fun clearLogs() {
@@ -262,7 +328,13 @@ class DefaultSidebikeController internal constructor(
 
     override fun refreshCaInstalled() {
         scope.launch {
-            refreshCaInstalledInternal(_state.value.config, allowEngineCreation = _state.value.config.mitm.enabled)
+            // Retry: after returning from the system installer the CA store may lag behind by a
+            // moment; a single check produced the false negative "未安装该证书" (user issue 3).
+            refreshCaInstalledInternal(
+                config = configStore.load(),
+                allowEngineCreation = true,
+                attempts = CA_REFRESH_DETECTION_ATTEMPTS,
+            )
         }
     }
 
@@ -303,6 +375,308 @@ class DefaultSidebikeController internal constructor(
         }
     }
 
+    // ---------------------------------------------------------------- 0.1.1-alpha: log export
+
+    override suspend fun buildLogText(): String = runCatching {
+        val snapshot = _state.value
+        val allLogs = collectAllLogs()
+        val deviceInfo = LogExport.buildDeviceInfo(
+            context = appContext,
+            state = snapshot,
+            config = snapshot.config,
+            extraEnvironmentLines = environmentExtraLines(snapshot),
+        )
+        LogExport.buildLogText(deviceInfo, allLogs, exportDiagnostics())
+    }.onFailure { Log.e(TAG, "buildLogText failed", it) }
+        .getOrElse { error -> "Dev-Sidebike 日志生成失败: ${error.message ?: error.javaClass.simpleName}" }
+
+    override suspend fun buildDebugBundle(): ByteArray = runCatching {
+        val snapshot = _state.value
+        val allLogs = collectAllLogs()
+        val deviceInfo = LogExport.buildDeviceInfo(
+            context = appContext,
+            state = snapshot,
+            config = snapshot.config,
+            extraEnvironmentLines = environmentExtraLines(snapshot),
+        )
+        LogExport.buildDebugBundle(
+            deviceInfo = deviceInfo,
+            diagnostics = exportDiagnostics(),
+            logs = allLogs,
+            configJson = configStore.encode(snapshot.config),
+            stateText = LogExport.buildStateText(snapshot, allLogs.size),
+        )
+    }.onFailure { Log.e(TAG, "buildDebugBundle failed", it) }
+        .getOrElse { ByteArray(0) }
+
+    // ---------------------------------------------------------------- 0.1.1-alpha: diagnostics
+
+    override suspend fun runNetworkDiagnostics(): String {
+        _state.update { it.copy(diagnosticsRunning = true) }
+        log(LogLevel.INFO, "diagnostics", "开始网络诊断")
+        return try {
+            val snapshot = _state.value
+            val engineForProbe = engine ?: SidebikeRuntime.engineOrNull()
+            val runner = NetworkDiagnosticsRunner(
+                config = snapshot.config,
+                state = snapshot,
+                engine = engineForProbe,
+                probes = probes,
+            )
+            val report = withContext(Dispatchers.IO) { runner.run() }
+            log(LogLevel.INFO, "diagnostics", "网络诊断完成: ${summarizeDiagnostics(report)}")
+            report
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (error: Throwable) {
+            Log.e(TAG, "runNetworkDiagnostics failed", error)
+            val message = "网络诊断失败: ${error.message ?: error.javaClass.simpleName}"
+            log(LogLevel.ERROR, "diagnostics", message, error)
+            "$message\n请尝试「导出日志与诊断包」反馈给开发者。"
+        } finally {
+            _state.update { it.copy(diagnosticsRunning = false) }
+        }
+    }
+
+    // ---------------------------------------------------------------- 0.1.1-alpha: CA / MITM
+
+    override suspend fun prepareCaInstall(): CaInstallRequest? = withContext(Dispatchers.IO) {
+        runCatching {
+            // The system certificate installer needs a secure lock screen; without one the credential
+            // UI shows a black dialog with only a close button (real-device "未安装该证书" report).
+            if (!isSecureLockConfigured()) {
+                val message = "请先在系统设置中设置锁屏密码/图案后再安装 CA 证书（系统证书安装器需要设备锁屏）"
+                log(LogLevel.WARN, "ca", message)
+                _state.update { it.copy(lastError = message, statusMessage = message) }
+                return@runCatching null
+            }
+            val config = configStore.load()
+            val activeEngine = ensureEngineForOperations(config)
+            if (activeEngine == null) {
+                log(LogLevel.ERROR, "ca", "CA 生成失败：引擎不可用")
+                return@runCatching null
+            }
+            // Generate the CA regardless of the MITM toggle (bug: CA was missing when MITM was off,
+            // so users could not install it before enabling MITM).
+            val pem = runCatching { activeEngine.ensureCaCertificate() }
+                .onFailure { Log.w(TAG, "ensureCaCertificate failed", it) }
+                .getOrNull()
+                ?: runCatching { activeEngine.caCertificatePem() }.getOrNull()
+            if (pem.isNullOrBlank()) {
+                log(LogLevel.ERROR, "ca", "引擎未能生成 CA 证书")
+                return@runCatching null
+            }
+            val bundle = buildCaInstallBundle(pem)
+            if (bundle == null) {
+                log(LogLevel.ERROR, "ca", "无法构建系统证书安装 Intent")
+                return@runCatching null
+            }
+            // Clear a stale lock-screen/install error once generation succeeds.
+            _state.update {
+                if (it.lastError == null) it else it.copy(lastError = null, statusMessage = "CA 证书已就绪，可开始安装")
+            }
+            log(LogLevel.INFO, "ca", "CA 已就绪: ${bundle.subject} SHA256=${bundle.sha256Fingerprint}")
+            CaInstallRequest(
+                intent = bundle.intent,
+                pem = bundle.pem,
+                sha256Fingerprint = bundle.sha256Fingerprint,
+                subject = bundle.subject,
+                settingsFallbackIntent = bundle.settingsFallbackIntent,
+            )
+        }.onFailure { Log.e(TAG, "prepareCaInstall failed", it) }.getOrNull()
+    }
+
+    override suspend fun setMitmEnabled(enabled: Boolean): MitmToggleResult {
+        val config = configStore.load()
+        if (!enabled) {
+            val updated = config.copy(
+                mitm = config.mitm.copy(enabled = false),
+                proxy = config.proxy.copy(mitmEnabled = false),
+            )
+            updateConfig(updated)
+            _state.update { it.copy(mitmActive = false) }
+            log(LogLevel.INFO, "mitm", "MITM 已关闭（HTTP 层改写停用）")
+            return MitmToggleResult(effective = false, message = "MITM 已关闭")
+        }
+
+        val activeEngine = ensureEngineForOperations(config)
+        if (activeEngine == null) {
+            log(LogLevel.ERROR, "mitm", "无法开启 MITM：引擎不可用")
+            return MitmToggleResult(false, "引擎不可用，无法生成 CA 证书")
+        }
+        val pem = withContext(Dispatchers.IO) {
+            runCatching { activeEngine.ensureCaCertificate() }
+                .onFailure { Log.w(TAG, "ensureCaCertificate failed", it) }
+                .getOrNull()
+        }
+        if (pem.isNullOrBlank()) {
+            log(LogLevel.ERROR, "mitm", "无法开启 MITM：CA 生成失败")
+            return MitmToggleResult(false, "无法生成 CA 证书，请稍后重试或导出日志反馈")
+        }
+        val keyPem = readCaKeyPem(config)
+        val detection = withContext(Dispatchers.IO) { detectCaInstalled(pem, keyPem) }
+        if (!detection.installed) {
+            _state.update { it.copy(caInstalled = false, mitmActive = false) }
+            log(LogLevel.WARN, "mitm", "CA 未安装，拒绝开启 MITM（检测=${detection.method}）")
+            return MitmToggleResult(
+                effective = false,
+                message = "CA 证书尚未安装或未被系统信任，请先在「证书安装」页完成安装后再开启 MITM",
+            )
+        }
+
+        val updated = config.copy(
+            mitm = config.mitm.copy(enabled = true),
+            proxy = config.proxy.copy(mitmEnabled = true),
+        )
+        // Mark CA as trusted *before* updateConfig so its safety net does not downgrade this
+        // deliberate, CA-verified enable operation.
+        _state.update { it.copy(caInstalled = true) }
+        updateConfig(updated)
+        log(LogLevel.INFO, "mitm", "MITM 已开启（CA 已安装，检测=${detection.method}）")
+        return MitmToggleResult(effective = true)
+    }
+
+    // ---------------------------------------------------------------- 0.1.1-alpha: rule editing
+
+    override suspend fun saveRule(draft: RuleDraft) {
+        val config = configStore.load()
+        val updated = runCatching { RuleEditor.applyRule(config, draft) }
+            .onFailure { Log.w(TAG, "saveRule rejected", it) }
+            .getOrNull() ?: return
+        updateConfig(updated)
+        log(LogLevel.INFO, "rules", "已保存规则 ${draft.domainPattern} ${draft.pathRegex}")
+    }
+
+    override suspend fun deleteRule(domainPattern: String, pathRegex: String) {
+        val config = configStore.load()
+        val updated = RuleEditor.deleteRule(config, domainPattern, pathRegex)
+        updateConfig(updated)
+        log(LogLevel.INFO, "rules", "已删除规则 $domainPattern $pathRegex")
+    }
+
+    override suspend fun setDirectPassDomains(domains: List<String>) {
+        val config = configStore.load()
+        val normalized = RuleEditor.normalizeDomains(domains)
+        val previouslyManaged = configStore.loadManagedDirectPassDomains()
+        val updated = RuleEditor.setDirectPassDomains(config, normalized, previouslyManaged)
+        runCatching { configStore.saveManagedDirectPassDomains(normalized) }
+            .onFailure { Log.w(TAG, "Failed to persist managed direct-pass domains", it) }
+        updateConfig(updated)
+        log(LogLevel.INFO, "rules", "直连放行域名已更新: ${normalized.size} 个")
+    }
+
+    override suspend fun setDomesticAllowList(domains: List<String>) {
+        val config = configStore.load()
+        val updated = RuleEditor.setDomesticAllowList(config, domains)
+        updateConfig(updated)
+        log(LogLevel.INFO, "rules", "国内直连列表已更新: ${updated.domesticAllowList.size} 条")
+    }
+
+    override suspend fun importRulesFromText(
+        text: String,
+        format: RuleSourceFormat,
+        sourceName: String,
+    ): RuleImportSummary {
+        val manager = provideRuleManager() ?: return RuleImportSummary(
+            warnings = listOf("规则解析器尚未安装（core/rules 模块更新中），请稍后重试"),
+        )
+        if (text.isBlank()) return RuleImportSummary(warnings = listOf("导入内容为空"))
+        val imported = runCatching { manager.parse(text, format, sourceName) }
+            .onFailure { Log.w(TAG, "rule parse failed", it) }
+            .getOrElse { error ->
+                log(LogLevel.ERROR, "rules", "规则解析失败: ${error.message}", error)
+                return RuleImportSummary(warnings = listOf("规则解析失败: ${error.message ?: error.javaClass.simpleName}"))
+            }
+        val config = configStore.load()
+        val outcome = RuleEditor.mergeImported(config, imported)
+        updateConfig(outcome.config)
+        log(
+            LogLevel.INFO,
+            "rules",
+            "导入规则[$sourceName]: 拦截 +${outcome.addedIntercepts}, 直连 +${outcome.addedDirectPassDomains}, " +
+                "国内 +${outcome.addedDomesticDomains}, 警告 ${imported.warnings.size}",
+        )
+        return RuleImportSummary(
+            addedIntercepts = outcome.addedIntercepts,
+            addedDirectPassDomains = outcome.addedDirectPassDomains,
+            addedDomesticDomains = outcome.addedDomesticDomains,
+            warnings = imported.warnings,
+        )
+    }
+
+    override suspend fun refreshRuleSources(force: Boolean): RuleSourceRefreshSummary {
+        val manager = provideRuleManager()
+            ?: return RuleSourceRefreshSummary(failedSources = mapOf("manager" to "规则源管理器尚未安装"))
+        _state.update { it.copy(ruleSourcesBusy = true) }
+        return try {
+            val config = configStore.load()
+            val enabledSources = config.ruleSources.filter { it.enabled }
+            if (enabledSources.isEmpty()) {
+                return RuleSourceRefreshSummary()
+            }
+            val results: List<RuleSourceRefreshResult> = runCatching {
+                manager.refreshAll(enabledSources, force)
+            }.onFailure { Log.w(TAG, "refreshAll failed", it) }
+                .getOrElse { error ->
+                    enabledSources.map {
+                        RuleSourceRefreshResult(
+                            source = it,
+                            error = error.message ?: error.javaClass.simpleName,
+                        )
+                    }
+                }
+            val resultById = results.associateBy { it.source.id }
+            val updated = mutableListOf<String>()
+            val failed = linkedMapOf<String, String>()
+            val notModified = mutableListOf<String>()
+            var importedRules = 0
+            var mergedConfig = config
+            val newSources = config.ruleSources.map { source ->
+                val result = resultById[source.id] ?: return@map source
+                val resultError = result.error
+                val resultImported = result.imported
+                when {
+                    resultError != null -> {
+                        failed[source.name] = resultError
+                        source.copy(lastError = resultError)
+                    }
+                    result.notModified -> {
+                        notModified += source.name
+                        source.copy(lastError = null)
+                    }
+                    resultImported != null -> {
+                        val outcome = RuleEditor.mergeImported(mergedConfig, resultImported)
+                        mergedConfig = outcome.config
+                        importedRules += outcome.addedIntercepts +
+                            outcome.addedDirectPassDomains + outcome.addedDomesticDomains
+                        updated += source.name
+                        source.copy(
+                            lastUpdatedMs = System.currentTimeMillis(),
+                            lastError = null,
+                            lastImported = resultImported.ruleCount,
+                        )
+                    }
+                    else -> source
+                }
+            }
+            mergedConfig = mergedConfig.copy(ruleSources = newSources)
+            updateConfig(mergedConfig)
+            log(
+                LogLevel.INFO,
+                "rules",
+                "规则源刷新: 更新 ${updated.size}, 未变 ${notModified.size}, 失败 ${failed.size}, 新增规则 $importedRules",
+            )
+            RuleSourceRefreshSummary(
+                updatedSources = updated,
+                failedSources = failed,
+                notModifiedSources = notModified,
+                importedRules = importedRules,
+            )
+        } finally {
+            _state.update { it.copy(ruleSourcesBusy = false) }
+        }
+    }
+
     // ---------------------------------------------------------------- start flow
 
     private suspend fun runStart() {
@@ -324,6 +698,17 @@ class DefaultSidebikeController internal constructor(
             transition(setOf(RunStatus.PREPARING), RunStatus.IDLE, "等待 VPN 授权")
             return
         }
+
+        // 0.1.1-alpha migration (defense in depth): re-check right before starting, because the CA may
+        // have been uninstalled since app launch. Never start the VPN with MITM-on-but-untrusted-CA.
+        val caInstalledAtStart = refreshCaInstalledInternal(
+            config = config,
+            allowEngineCreation = config.mitm.enabled || config.proxy.mitmEnabled,
+        )
+        if (migrateLegacyMitmIfUnsafe(config, caInstalledAtStart)) {
+            config = configStore.load()
+        }
+        _state.update { it.copy(config = config) }
 
         // --- 1. preflight: proxy port + Private DNS / lockdown detection -----------------------
         val preflight = try {
@@ -426,17 +811,15 @@ class DefaultSidebikeController internal constructor(
         }
         when {
             phase is VpnPhase.Running -> {
-                if (transition(
-                        from = setOf(RunStatus.STARTING),
-                        to = RunStatus.RUNNING,
-                        message = runningStatusMessage(),
-                        resetUptime = true,
-                    )
-                ) {
-                    log(LogLevel.INFO, "controller", "VPN 已运行")
-                    startStatsPolling()
-                    verifySystemProxyAsync()
-                }
+                transition(
+                    from = setOf(RunStatus.STARTING),
+                    to = RunStatus.RUNNING,
+                    message = runningStatusMessage(),
+                    resetUptime = true,
+                )
+                // The service-phase collector may win the transition race; the side effects must run
+                // exactly once either way (log "VPN 已运行", stats polling, proxy verification, …).
+                if (_state.value.status == RunStatus.RUNNING) onEnterRunning()
             }
             phase == null -> failStart("VPN 启动超时（${START_TIMEOUT_MS / 1000}s 内未就绪）", null)
             phase is VpnPhase.Failed -> failStart("VPN 服务错误: ${phase.message}", null)
@@ -565,32 +948,40 @@ class DefaultSidebikeController internal constructor(
         }
         when (_state.value.status) {
             RunStatus.STARTING -> {
-                if (transition(
-                        from = setOf(RunStatus.STARTING),
-                        to = RunStatus.RUNNING,
-                        message = runningStatusMessage(),
-                        resetUptime = true,
-                    )
-                ) {
-                    startStatsPolling()
-                    verifySystemProxyAsync()
-                }
+                transition(
+                    from = setOf(RunStatus.STARTING),
+                    to = RunStatus.RUNNING,
+                    message = runningStatusMessage(),
+                    resetUptime = true,
+                )
+                if (_state.value.status == RunStatus.RUNNING) onEnterRunning()
             }
             RunStatus.IDLE, RunStatus.ERROR -> {
                 // Always-on VPN was (re)started by the system while the UI was not driving it.
-                if (transition(
-                        from = setOf(RunStatus.IDLE, RunStatus.ERROR),
-                        to = RunStatus.RUNNING,
-                        message = "运行中（always-on）",
-                        resetUptime = true,
-                    )
-                ) {
-                    startStatsPolling()
-                    verifySystemProxyAsync()
-                }
+                transition(
+                    from = setOf(RunStatus.IDLE, RunStatus.ERROR),
+                    to = RunStatus.RUNNING,
+                    message = "运行中（always-on）",
+                    resetUptime = true,
+                )
+                if (_state.value.status == RunStatus.RUNNING) onEnterRunning()
             }
             else -> Unit
         }
+    }
+
+    /**
+     * Side effects of entering RUNNING, shared by the start flow and the service callback (they can
+     * race; [runningEntryLogged] makes it exactly-once per RUNNING period).
+     */
+    private fun onEnterRunning() {
+        if (!runningEntryLogged.compareAndSet(false, true)) return
+        log(LogLevel.INFO, "controller", "VPN 已运行")
+        startStatsPolling()
+        verifySystemProxyAsync()
+        // 0.1.1-alpha: refresh due remote rule sources in the background once the VPN is up (never
+        // blocks startup and avoids racing the startup config writes).
+        maybeAutoRefreshRuleSources(_state.value.config)
     }
 
     // ---------------------------------------------------------------- stats + watchdog
@@ -779,35 +1170,164 @@ class DefaultSidebikeController internal constructor(
             return null
         }
         if (engine == null) attachEngine(availableEngine)
-        val config = _state.value.config
+        // CA generation is independent of the MITM toggle (0.1.1-alpha): the install guide needs the
+        // certificate before MITM can be enabled.
         return runCatching {
-            availableEngine.caCertificatePem()
-                ?: if (config.mitm.enabled) availableEngine.ensureCaCertificate() else null
+            availableEngine.ensureCaCertificate() ?: availableEngine.caCertificatePem()
         }.onFailure { Log.w(TAG, "caCertificatePem failed", it) }.getOrNull()
     }
 
-    private suspend fun refreshCaInstalledInternal(config: SidebikeConfig, allowEngineCreation: Boolean) {
+    private suspend fun refreshCaInstalledInternal(
+        config: SidebikeConfig,
+        allowEngineCreation: Boolean,
+        attempts: Int = 1,
+    ): Boolean {
         val pem = runCatching {
             withContext(Dispatchers.IO) { caCertificatePemInternal(allowEngineCreation) }
         }.getOrNull()
         if (pem == null) {
             _state.update { it.copy(caInstalled = false) }
-            return
+            return false
         }
-        val keyPem = runCatching {
-            withContext(Dispatchers.IO) {
-                File(appContext.filesDir, config.mitm.caKeyFileName)
-                    .takeIf { it.isFile }
-                    ?.readText()
-            }
-        }.getOrNull()
+        val keyPem = readCaKeyPem(config)
         val detection = withContext(Dispatchers.IO) {
-            runCatching { CaInstaller.isCaInstalled(pem, keyPem) }
+            runCatching { detectCaInstalled(pem, keyPem) }
                 .getOrDefault(CaInstaller.Detection(false, "error"))
         }
-        _state.update { it.copy(caInstalled = detection.installed) }
-        if (detection.installed) {
-            log(LogLevel.DEBUG, "ca", "检测到 CA 已安装（${detection.method}）")
+        var effective = detection
+        if (!effective.installed && attempts > 1) {
+            withContext(Dispatchers.IO) {
+                repeat(attempts - 1) {
+                    if (effective.installed) return@repeat
+                    runCatching { Thread.sleep(CA_REFRESH_DETECTION_DELAY_MS) }
+                    effective = runCatching { detectCaInstalled(pem, keyPem) }
+                        .getOrDefault(CaInstaller.Detection(false, "error"))
+                }
+            }
+        }
+        _state.update { it.copy(caInstalled = effective.installed) }
+        if (effective.installed) {
+            log(LogLevel.DEBUG, "ca", "检测到 CA 已安装（${effective.method}）")
+        }
+        return effective.installed
+    }
+
+    /**
+     * 0.1.1-alpha migration for 0.1.0-beta.1 configs: MITM was enabled without a trusted CA, which
+     * made every intercepted HTTPS request fail with `CERTIFICATE_UNKNOWN` (real-device report).
+     * When the CA is not trusted we force-disable MITM, persist the change, hot-update the engine and
+     * surface a clear warning so the next launch is explicit instead of silently broken.
+     *
+     * @return true when a legacy unsafe MITM configuration was downgraded.
+     */
+    private fun migrateLegacyMitmIfUnsafe(config: SidebikeConfig, caInstalled: Boolean): Boolean {
+        if (caInstalled) return false
+        if (!config.mitm.enabled && !config.proxy.mitmEnabled) return false
+        val migrated = config.copy(
+            mitm = config.mitm.copy(enabled = false),
+            proxy = config.proxy.copy(mitmEnabled = false),
+        )
+        runCatching { configStore.save(migrated) }
+            .onFailure { Log.w(TAG, "Failed to persist legacy MITM migration", it) }
+        engine?.let { currentEngine ->
+            runCatching { currentEngine.updateConfig(migrated) }
+                .onFailure { Log.w(TAG, "engine.updateConfig failed during MITM migration", it) }
+        }
+        _state.update {
+            it.copy(
+                config = migrated,
+                mitmActive = false,
+                caInstalled = false,
+                statusMessage = LEGACY_MITM_DOWNGRADE_MESSAGE,
+                lastError = LEGACY_MITM_DOWNGRADE_MESSAGE,
+            )
+        }
+        log(LogLevel.WARN, "mitm", LEGACY_MITM_DOWNGRADE_MESSAGE)
+        return true
+    }
+
+    // ---------------------------------------------------------------- 0.1.1-alpha helpers
+
+    /** Merges engine logger history with the controller log ring (deduplicated, chronological). */
+    private fun collectAllLogs(): List<LogEntry> {
+        val engineHistory = runCatching { engine?.logger()?.history() }.getOrNull().orEmpty()
+        return (engineHistory + logs.value)
+            .sortedBy { it.timeMs }
+            .distinctBy { "${it.timeMs}|${it.tag}|${it.message}" }
+            .takeLast(MAX_LOG_ENTRIES * 2)
+    }
+
+    private fun environmentExtraLines(snapshot: SidebikeUiState): List<String> = buildList {
+        add("CA 指纹: ${caFingerprintOrNull() ?: "不可用"}")
+        add("规则源: ${snapshot.config.ruleSources.size} 个（启用 ${snapshot.config.ruleSources.count { it.enabled }}）")
+        add("日志条数: 控制器=${logs.value.size}, 导出=${collectAllLogs().size}")
+        add("诊断进行中: ${snapshot.diagnosticsRunning}, 规则源刷新中: ${snapshot.ruleSourcesBusy}")
+        val tunStats = VpnRuntimeStats.snapshot()
+        add(
+            "tun 丢弃: IPv6=${tunStats.ipv6Dropped}, 其他=${tunStats.otherDropped}, " +
+                "DNS 查询=${tunStats.dnsQueries}, 最近原因=${tunStats.lastIgnoredReason ?: "无"}",
+        )
+    }
+
+    private fun caFingerprintOrNull(): String? = runCatching {
+        val pem = engine?.caCertificatePem() ?: return null
+        CaInstaller.parseCertificate(pem)?.let { CaInstaller.sha256Fingerprint(it) }
+    }.getOrNull()
+
+    private fun readCaKeyPem(config: SidebikeConfig): String? = runCatching {
+        File(appContext.filesDir, config.mitm.caKeyFileName).takeIf { it.isFile }?.readText()
+    }.getOrNull()
+
+    /** Returns the process engine, creating (but not starting) it if a CA/rule operation needs it. */
+    private fun ensureEngineForOperations(config: SidebikeConfig): SidebikeEngine? {
+        engine?.let { return it }
+        SidebikeRuntime.engineOrNull()?.let { existing ->
+            attachEngine(existing)
+            return existing
+        }
+        val created = runCatching { SidebikeRuntime.ensureEngine(appContext, config) }
+            .onFailure { Log.w(TAG, "Engine unavailable for controller operation", it) }
+            .getOrNull() ?: return null
+        attachEngine(created)
+        return created
+    }
+
+    private fun summarizeDiagnostics(report: String): String = report.lineSequence()
+        .filter { line -> line.contains("✅") || line.contains("❌") }
+        .take(6)
+        .joinToString("；") { it.trim() }
+
+    /** Resolves the installed rule-source manager; tries the bootstrap installer when missing. */
+    private fun resolveRuleSourceManager(): RuleSourceManager? {
+        runCatching { RuleSourceManagerFactory.create() }.getOrNull()?.let { return it }
+        EngineBootstrap.ensureRuleSourceManagerInstalled()
+        return runCatching { RuleSourceManagerFactory.create() }.getOrNull()
+    }
+
+    /**
+     * 0.1.1-alpha: refresh enabled+autoUpdate remote rule sources whose interval elapsed, in the
+     * background so VPN startup is never blocked by network I/O.
+     */
+    private fun maybeAutoRefreshRuleSources(config: SidebikeConfig) {
+        val now = System.currentTimeMillis()
+        val due = config.ruleSources.any { source ->
+            source.enabled && source.autoUpdate && source.updateIntervalHours > 0 &&
+                (source.lastUpdatedMs <= 0L ||
+                    now - source.lastUpdatedMs >= source.updateIntervalHours * 3_600_000L)
+        }
+        if (!due) return
+        if (!ruleAutoRefreshInFlight.compareAndSet(false, true)) return
+        scope.launch {
+            try {
+                log(LogLevel.INFO, "rules", "规则源已到更新时间，开始后台自动刷新")
+                refreshRuleSources(force = false)
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (error: Throwable) {
+                log(LogLevel.WARN, "rules", "自动刷新规则源失败: ${error.message}", error)
+            } finally {
+                ruleAutoRefreshInFlight.set(false)
+            }
         }
     }
 
@@ -825,7 +1345,11 @@ class DefaultSidebikeController internal constructor(
 
     private fun forceTransition(to: RunStatus, message: String, error: String? = null): Boolean {
         synchronized(transitionLock) {
-            _state.value = _state.value.transitioned(to, message, error)
+            val current = _state.value
+            if (current.status == RunStatus.RUNNING && to != RunStatus.RUNNING) {
+                runningEntryLogged.set(false)
+            }
+            _state.value = current.transitioned(to, message, error)
             return true
         }
     }
@@ -840,6 +1364,9 @@ class DefaultSidebikeController internal constructor(
         val current = _state.value
         if (current.status !in from) return false
         if (resetUptime) runningSinceMs = System.currentTimeMillis()
+        if (current.status == RunStatus.RUNNING && to != RunStatus.RUNNING) {
+            runningEntryLogged.set(false)
+        }
         _state.value = current.transitioned(to, message, error)
         true
     }
@@ -894,11 +1421,17 @@ class DefaultSidebikeController internal constructor(
         return probePort(port)
     }
 
+    /** Real secure-lock-screen probe backed by [KeyguardManager] (CA installer prerequisite). */
+    private fun isDeviceSecureReal(): Boolean = runCatching {
+        appContext.getSystemService(KeyguardManager::class.java)?.isDeviceSecure == true
+    }.getOrDefault(false)
+
     /** Test/caller hook: releases resources and stops all coroutines. Idempotent. */
     internal fun close() {
         cancelStatsPolling()
         startJob?.cancel()
         startRequested.set(false)
+        runningEntryLogged.set(false)
         runCatching { gateway.stop(appContext) }
         cleanupEngine()
         scope.cancel()
@@ -923,6 +1456,17 @@ class DefaultSidebikeController internal constructor(
         private const val SYSTEM_PROXY_VERIFY_DELAY_MS = 400L
         private const val SYSTEM_PROXY_RECHECK_TICKS = 5L
         private const val LOOPBACK = "127.0.0.1"
+
+        /** CA-installed re-detection after returning from the system installer (user issue 3). */
+        private const val CA_REFRESH_DETECTION_ATTEMPTS = 2
+        private const val CA_REFRESH_DETECTION_DELAY_MS = 600L
+
+        /**
+         * Warning surfaced when a legacy config had MITM enabled without a trusted CA (0.1.0-beta.1
+         * real-device bug: CERTIFICATE_UNKNOWN storms on googleapis/gstatic). Persisted + shown in UI.
+         */
+        private const val LEGACY_MITM_DOWNGRADE_MESSAGE =
+            "检测到 MITM 已开启但 CA 证书未安装，已自动降级直连，避免境外 HTTPS 全部失败；请先安装证书再重新开启 MITM"
 
         @Volatile
         private var instance: DefaultSidebikeController? = null
