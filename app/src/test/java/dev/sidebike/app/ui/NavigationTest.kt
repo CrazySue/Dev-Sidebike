@@ -2,6 +2,7 @@ package dev.sidebike.app.ui
 
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.test.hasTestTag
+import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
@@ -114,6 +115,8 @@ class NavigationTest : ComposeTestBase() {
         setApp()
 
         clickNav("logs")
+        // QA-011-01: the export FAB must expose a screen-reader/uiautomator-visible label.
+        composeRule.onNodeWithContentDescription("导出日志").assertExists()
         composeRule.onNodeWithTag("logs-export-fab").performClick()
         settle()
 

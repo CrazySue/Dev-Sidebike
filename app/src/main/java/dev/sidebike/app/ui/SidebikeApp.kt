@@ -57,6 +57,8 @@ import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -132,6 +134,9 @@ fun SidebikeAppContent(
     val currentDestination = SidebikeDestination.fromRoute(currentRoute)
     var rulesTabRequest by remember { mutableStateOf<Int?>(null) }
     var showLogExportSheet by remember { mutableStateOf(false) }
+    // Explicit accessibility label: the FAB's visible "导出" label was not exposed as text/content-desc
+    // to TalkBack/uiautomator (QA-011-01), so provide a stable semantic label.
+    val logsExportDescription = stringResource(R.string.logs_export_entry)
 
     val showMessage: (String) -> Unit = { message ->
         if (message.isNotBlank()) scope.launch { snackbarHost.showSnackbar(message) }
@@ -174,7 +179,9 @@ fun SidebikeAppContent(
                     text = { Text(stringResource(R.string.logs_export)) },
                     icon = { Icon(Icons.Outlined.FileDownload, contentDescription = null) },
                     onClick = { showLogExportSheet = true },
-                    modifier = Modifier.testTag("logs-export-fab"),
+                    modifier = Modifier
+                        .testTag("logs-export-fab")
+                        .semantics { contentDescription = logsExportDescription },
                 )
             }
         },
