@@ -38,4 +38,10 @@ interface DnsResolver {
 
     /** 预解析（启动预热，可空实现）。 */
     suspend fun prewarm(hosts: List<String>) = Unit
+
+    /**
+     * Provider 健康检查（真实发起轻量查询，供"网络诊断"与设置页状态展示）。
+     * 实现必须容错：单个 provider 失败不影响其他结果，任何情况下不抛出异常。
+     */
+    suspend fun health(): List<DnsProviderHealth> = emptyList()
 }

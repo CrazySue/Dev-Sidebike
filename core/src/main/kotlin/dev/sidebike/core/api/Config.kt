@@ -194,6 +194,8 @@ data class InterceptAction(
     val responseReplace: JsonElement? = null,
     val cacheDays: Int? = null,
     val status: Int? = null,
+    /** true 表示直接拒绝该请求（对齐上游 abort；用于广告/跟踪域名拦截）。 */
+    val abort: Boolean? = null,
     val desc: String? = null,
     val remark: String? = null,
 )
