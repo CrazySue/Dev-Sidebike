@@ -54,3 +54,19 @@ interface RuleSourceManager {
         url: String = "",
     ): ImportedRuleSet
 }
+
+/**
+ * RuleSourceManager 工厂：实现类（core/rules/DefaultRuleSourceManager）通过 [install] 注册；
+ * App 启动时由 Controller 调用 `install()` 后再 [create]（与 SidebikeEngineFactory 相同模式）。
+ */
+object RuleSourceManagerFactory {
+    @Volatile
+    private var creator: (() -> RuleSourceManager)? = null
+
+    fun install(factory: () -> RuleSourceManager) {
+        creator = factory
+    }
+
+    fun create(): RuleSourceManager =
+        creator?.invoke() ?: error("RuleSourceManager 未安装实现（core/rules/DefaultRuleSourceManager 未注册）")
+}
