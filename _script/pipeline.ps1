@@ -34,8 +34,14 @@ function Invoke-Gradle([string[]]$GradleArgs, [string]$LogName) {
     $log = "$root\out\logs\$LogName.log"
     New-Item -ItemType Directory -Force -Path (Split-Path $log) | Out-Null
     Write-Host "> gradle $($GradleArgs -join ' ')" -ForegroundColor DarkGray
-    & $gradle -p $root --console=plain @GradleArgs 2>&1 | Tee-Object -FilePath $log | ForEach-Object { Write-Host $_ }
-    if ($LASTEXITCODE -ne 0) { throw "Gradle 失败: $($GradleArgs -join ' ')（日志: $log）" }
+    # IMPORTANT: run through the shared wrapper (cross-process mutex) instead of bare gradle.bat —
+    # otherwise a pipeline build can race with an agent build and corrupt Kotlin incremental caches
+    # ("Storage[...source-to-classes.tab] is already registered").
+    $gradleWrapper = "$root\_script\gradle.ps1"
+    & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $gradleWrapper @GradleArgs 2>&1 |
+        Tee-Object -FilePath $log | ForEach-Object { Write-Host $_ }
+    $code = $LASTEXITCODE
+    if ($code -ne 0) { throw "Gradle 失败: $($GradleArgs -join ' ')（exit=$code，日志: $log）" }
 }
 function Get-TestCounts([string]$resultsDir) {
     $total = 0; $failures = 0; $errors = 0; $skipped = 0
