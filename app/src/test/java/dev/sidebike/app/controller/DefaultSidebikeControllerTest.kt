@@ -664,16 +664,28 @@ class DefaultSidebikeControllerTest {
                 ),
             ),
         )
+        var s1EtagSent: String? = null
         val manager = FakeRuleSourceManager().apply {
             refreshHandler = { sources, _ ->
                 sources.map { source ->
                     when (source.id) {
-                        "s1" -> RuleSourceRefreshResult(
-                            source = source,
-                            imported = ImportedRuleSet(
-                                intercepts = mapOf("imported.example.com" to mapOf(".*" to InterceptAction(proxy = "x"))),
-                            ),
-                        )
+                        "s1" -> {
+                            s1EtagSent = source.etag
+                            if (source.etag != null) {
+                                // Conditional refresh path: validators must be forwarded and a 304 accepted.
+                                RuleSourceRefreshResult(source = source, notModified = true)
+                            } else {
+                                RuleSourceRefreshResult(
+                                    source = source.copy(
+                                        etag = "\"v1\"",
+                                        lastModified = "Mon, 01 Jan 2024 00:00:00 GMT",
+                                    ),
+                                    imported = ImportedRuleSet(
+                                        intercepts = mapOf("imported.example.com" to mapOf(".*" to InterceptAction(proxy = "x"))),
+                                    ),
+                                )
+                            }
+                        }
                         "s2" -> RuleSourceRefreshResult(source = source, notModified = true)
                         else -> RuleSourceRefreshResult(source = source, error = "HTTP 500")
                     }
@@ -696,9 +708,18 @@ class DefaultSidebikeControllerTest {
         val sources = configStore.load().ruleSources.associateBy { it.id }
         assertTrue("updated source metadata must persist", sources.getValue("s1").lastUpdatedMs > 0)
         assertEquals(1, sources.getValue("s1").lastImported)
+        assertEquals("\"v1\"", sources.getValue("s1").etag)
+        assertEquals("Mon, 01 Jan 2024 00:00:00 GMT", sources.getValue("s1").lastModified)
         assertNull(sources.getValue("s2").lastError)
         assertEquals("HTTP 500", sources.getValue("s3").lastError)
         assertEquals(true, configStore.load().intercepts.containsKey("imported.example.com"))
+
+        // Second (non-forced) refresh must forward the persisted ETag; the fake answers 304, proving the
+        // conditional-refresh path is reachable and not silently dropping validators (QA-011-03).
+        val second = runBlocking { controller.refreshRuleSources(force = false) }
+        assertEquals("\"v1\"", s1EtagSent)
+        assertEquals(listOf("来源1", "来源2"), second.notModifiedSources)
+        assertEquals(0, second.importedRules)
     }
 
     @Test

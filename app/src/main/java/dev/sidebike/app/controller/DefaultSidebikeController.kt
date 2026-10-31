@@ -654,6 +654,10 @@ class DefaultSidebikeController internal constructor(
                             lastUpdatedMs = System.currentTimeMillis(),
                             lastError = null,
                             lastImported = resultImported.ruleCount,
+                            // Persist conditional-request validators so subsequent refreshes can get a 304
+                            // (QA-011-03: the manager returned them but the controller dropped them).
+                            etag = result.source.etag ?: source.etag,
+                            lastModified = result.source.lastModified ?: source.lastModified,
                         )
                     }
                     else -> source

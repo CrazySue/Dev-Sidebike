@@ -276,7 +276,7 @@ fun RulesScreen(
                     onImport = { showImport = true },
                     onRefreshAll = {
                         scope.launch {
-                            val summary = actions.refreshRuleSources(true)
+                            val summary = actions.refreshRuleSources(false)
                             onShowMessage(refreshSummaryText(summary))
                         }
                     },
@@ -293,7 +293,7 @@ fun RulesScreen(
                     onDelete = { source -> deleteSourceTarget = source },
                     onRefreshOne = {
                         scope.launch {
-                            val summary = actions.refreshRuleSources(true)
+                            val summary = actions.refreshRuleSources(false)
                             onShowMessage(refreshSummaryText(summary))
                         }
                     },
@@ -446,7 +446,7 @@ fun RulesScreen(
                     )
                     scope.launch {
                         actions.updateConfig(config.copy(ruleSources = sources + newSource))
-                        val summary = actions.refreshRuleSources(true)
+                        val summary = actions.refreshRuleSources(false)
                         onShowMessage(refreshSummaryText(summary))
                     }
                 } else {
