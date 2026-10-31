@@ -1,6 +1,9 @@
 package dev.sidebike.app.ui
 
 import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.ui.test.assertCountEquals
+import androidx.compose.ui.test.assertIsEnabled
+import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.onAllNodesWithText
@@ -9,137 +12,241 @@ import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollToNode
-import androidx.compose.ui.test.performTextInput
+
 import androidx.compose.ui.unit.dp
+import dev.sidebike.app.controller.RuleDraft
+import dev.sidebike.app.controller.RuleImportSummary
+import dev.sidebike.app.controller.RuleSourceRefreshSummary
 import dev.sidebike.app.ui.preview.PreviewData
 import dev.sidebike.app.ui.screens.RulesScreen
+import dev.sidebike.core.api.RuleSourceFormat
 import dev.sidebike.core.api.SidebikeConfig
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
+/** 0.1.1-alpha 规则管理页测试：4 个 tab、规则编辑/删除、直连/国内/规则源动作。 */
 class RulesScreenTest : ComposeTestBase() {
 
     private var lastConfig: SidebikeConfig? = null
+    private var savedRule: RuleDraft? = null
+    private var deletedRule: Pair<String, String>? = null
+    private var directPassDomains: List<String>? = null
+    private var domesticDomains: List<String>? = null
+    private var importedFormat: RuleSourceFormat? = null
+    private var importedText: String? = null
+    private var refreshCalls = 0
     private var reloadCalls = 0
+    private val messages = mutableListOf<String>()
 
-    private fun setRules(config: SidebikeConfig = PreviewData.config) {
+    private fun actions() = SidebikeActions(
+        updateConfig = { lastConfig = it },
+        reloadConfig = { reloadCalls++ },
+        saveRule = { savedRule = it },
+        deleteRule = { domain, path -> deletedRule = domain to path },
+        setDirectPassDomains = { directPassDomains = it },
+        setDomesticAllowList = { domesticDomains = it },
+        importRulesFromText = { text, format, _ ->
+            importedText = text
+            importedFormat = format
+            RuleImportSummary(addedIntercepts = 1)
+        },
+        refreshRuleSources = {
+            refreshCalls++
+            RuleSourceRefreshSummary(updatedSources = listOf("johnshall-cnip"), importedRules = 2)
+        },
+    )
+
+    private fun setRules(
+        state: dev.sidebike.app.state.SidebikeUiState = PreviewData.state(),
+        initialTab: Int = 0,
+    ) {
         setScreen {
             RulesScreen(
-                config = config,
+                state = state,
                 contentPadding = PaddingValues(0.dp),
-                onConfigChange = { lastConfig = it },
-                onReloadConfig = { reloadCalls++ },
+                actions = actions(),
+                onShowMessage = { messages += it },
+                initialTab = initialTab,
             )
         }
     }
 
-    private fun scrollRulesTo(tag: String) {
-        composeRule.onNodeWithTag("rules-list").performScrollToNode(hasTestTag(tag))
+    private fun assertShowMessageContains(fragment: String) {
+        assertTrue("未收到包含「$fragment」的提示，实际=$messages", messages.any { it.contains(fragment) })
+    }
+
+    // ------------------------------------------------------------------ intercepts
+
+    @Test
+    fun rendersFourTabsAndInterceptCards() {
+        setRules()
+
+        composeRule.onNodeWithTag("rules-tab:0").assertExists()
+        composeRule.onNodeWithTag("rules-tab:1").assertExists()
+        composeRule.onNodeWithTag("rules-tab:2").assertExists()
+        composeRule.onNodeWithTag("rules-tab:3").assertExists()
+        composeRule.onAllNodesWithText("github.com").onFirst().assertExists()
+        composeRule.onNodeWithTag("rules-add-rule").assertExists()
     }
 
     @Test
-    fun rendersDomainsAndSummary() {
+    fun searchFiltersRulesByDomain() {
         setRules()
 
-        composeRule.onNodeWithText("github.com").assertExists()
-        composeRule.onNodeWithText("共 4 个域名", substring = true).assertExists()
-        composeRule.onNodeWithText("共 4 个域名 · 5 条路径规则 · 1 个直连放行").assertExists()
-    }
-
-    @Test
-    fun searchFiltersDomainList() {
-        setRules()
-
-        composeRule.onNodeWithTag("rules-search").performTextInput("gstatic")
+        setText("rules-search", "gstatic")
         settle()
-
-        composeRule.onNodeWithText("www.gstatic.com").assertExists()
-        composeRule.onNodeWithText("api.github.com").assertDoesNotExist()
+        composeRule.onAllNodesWithText("www.gstatic.com").onFirst().assertExists()
+        composeRule.onAllNodesWithText("api.github.com").assertCountEquals(0)
     }
 
     @Test
-    fun searchShowsNoResultState() {
+    fun expandRuleShowsActionDetailsAndEditDelete() {
         setRules()
 
-        composeRule.onNodeWithTag("rules-search").performTextInput("not-a-domain-zzz")
+        composeRule.onNodeWithTag("rule-expand:github.com").performClick()
         settle()
+        composeRule.onAllNodesWithText("github.moeyy.xyz:443").onFirst().assertExists()
+        composeRule.onNodeWithTag("rule-edit:github.com:/").assertExists()
 
-        composeRule.onNodeWithText("没有匹配的规则").assertExists()
+        composeRule.onNodeWithTag("rule-delete:github.com:/api/*").performClick()
+        settle()
+        composeRule.onNodeWithText("删除该规则？").assertExists()
+        composeRule.onNodeWithTag("confirm-positive").performClick()
+        composeRule.waitUntil(timeoutMillis = 5_000) { deletedRule != null }
+        assertEquals("github.com" to "/api/*", deletedRule)
     }
 
     @Test
-    fun emptyConfigShowsEmptyState() {
-        setRules(PreviewData.emptyConfig)
+    fun addRuleDialogOpensAndValidates() {
+        setRules()
 
-        composeRule.onNodeWithText("暂无拦截规则").assertExists()
-        composeRule.onNodeWithText("重新加载配置").performClick()
+        composeRule.onNodeWithTag("rules-add-rule").performClick()
+        settle()
+        composeRule.onNodeWithTag("rule-editor-dialog").assertExists()
+        composeRule.onNodeWithTag("rule-save").assertIsNotEnabled()
+
+        setText("rule-domain-input", "example.org")
+        setText("rule-sni-input", "baidu.com")
+        settle()
+        composeRule.onNodeWithTag("rule-save").assertIsEnabled()
+        composeRule.onNodeWithTag("rule-save").performClick()
+        composeRule.waitUntil(timeoutMillis = 5_000) { savedRule != null }
+        assertEquals("example.org", savedRule?.domainPattern)
+        assertEquals("baidu.com", savedRule?.sni)
+    }
+
+    // ------------------------------------------------------------------ direct pass
+
+    @Test
+    fun directPassTabListsAndRemovesDomains() {
+        setRules(initialTab = 1)
+
+        composeRule.onNodeWithTag("direct-pass-list").assertExists()
+        composeRule.onAllNodesWithText("raw.githubusercontent.com").onFirst().assertExists()
+
+        composeRule.onNodeWithTag("direct-remove:raw.githubusercontent.com").performClick()
+        composeRule.waitUntil(timeoutMillis = 5_000) { directPassDomains != null }
+        assertTrue(directPassDomains?.contains("raw.githubusercontent.com") == false)
+    }
+
+    @Test
+    fun directPassAddDialogCallsController() {
+        setRules(initialTab = 1)
+
+        composeRule.onNodeWithTag("direct-pass-add").performClick()
+        settle()
+        composeRule.onNodeWithTag("direct-add-dialog").assertExists()
+        setText("single-input", "new.example.com")
+        settle()
+        composeRule.onNodeWithTag("single-input-save").performClick()
+        composeRule.waitUntil(timeoutMillis = 5_000) { directPassDomains != null }
+        assertTrue(directPassDomains?.contains("new.example.com") == true)
+    }
+
+    // ------------------------------------------------------------------ domestic
+
+    @Test
+    fun domesticTabListsAndRemovesDomains() {
+        setRules(initialTab = 2)
+
+        composeRule.onNodeWithTag("domestic-list").assertExists()
+        composeRule.onAllNodesWithText("example.cn").onFirst().assertExists()
+
+        composeRule.onNodeWithTag("domestic-remove:example.cn").performClick()
+        composeRule.waitUntil(timeoutMillis = 5_000) { domesticDomains != null }
+        assertTrue(domesticDomains?.contains("example.cn") == false)
+    }
+
+    @Test
+    fun domesticResetCallsReloadConfig() {
+        setRules(initialTab = 2)
+
+        composeRule.onNodeWithTag("domestic-reset").performClick()
+        settle()
+        composeRule.onNodeWithTag("confirm-positive").performClick()
+        composeRule.waitUntil(timeoutMillis = 5_000) { reloadCalls == 1 }
         assertEquals(1, reloadCalls)
     }
 
+    // ------------------------------------------------------------------ sources
+
     @Test
-    fun directOnlySwitchPersistsViaWhiteList() {
-        setRules()
+    fun sourcesTabShowsSourcesAndPresetAddPersists() {
+        setRules(initialTab = 3)
 
-        scrollRulesTo("rule-switch:github.com")
-        composeRule.onNodeWithTag("rule-switch:github.com").performClick()
-        settle()
-
-        val config = lastConfig
-        assertTrue("onConfigChange 应被调用", config != null)
-        assertEquals(true, config?.whiteList?.get("github.com"))
-        // 只读的 intercepts 规则不应被删除
-        assertTrue(config?.intercepts?.containsKey("github.com") == true)
+        composeRule.onNodeWithTag("sources-list").assertExists()
+        composeRule.onNodeWithTag("source-card:johnshall-cnip").assertExists()
+        composeRule.onNodeWithTag("sources-add-preset").performClick()
+        composeRule.waitUntil(timeoutMillis = 5_000) { lastConfig != null }
+        assertTrue(lastConfig?.ruleSources?.any { it.id == "johnshall-cnip" } == true)
     }
 
     @Test
-    fun disableDirectOnlyRemovesWhiteListEntry() {
-        setRules()
+    fun sourcesRefreshCallsControllerAndShowsSummary() {
+        setRules(initialTab = 3)
 
-        scrollRulesTo("rule-switch:raw.githubusercontent.com")
-        composeRule.onNodeWithTag("rule-switch:raw.githubusercontent.com").performClick()
-        settle()
-
-        val config = lastConfig
-        assertTrue(config != null)
-        assertFalse(config!!.whiteList.containsKey("raw.githubusercontent.com"))
+        composeRule.onNodeWithTag("sources-refresh-all").performClick()
+        composeRule.waitUntil(timeoutMillis = 5_000) { refreshCalls == 1 }
+        assertEquals(1, refreshCalls)
+        assertShowMessageContains("更新 1 个源")
     }
 
     @Test
-    fun expandedDomainShowsActionDetails() {
-        setRules()
+    fun sourcesImportDialogOpens() {
+        setRules(initialTab = 3)
 
-        composeRule.onNodeWithText("github.com").performClick()
+        composeRule.onNodeWithTag("sources-import").performClick()
         settle()
-
-        composeRule.onAllNodesWithText("镜像代理").onFirst().assertExists()
-        composeRule.onNodeWithText("github.moeyy.xyz:443").assertExists()
-        composeRule.onAllNodesWithText("本地合成响应").onFirst().assertExists()
+        composeRule.onNodeWithTag("rule-import-dialog").assertExists()
+        setText("import-text-input", "DOMAIN-SUFFIX,ads.example.com,REJECT")
+        settle()
+        composeRule.onNodeWithTag("import-save").performClick()
+        composeRule.waitUntil(timeoutMillis = 5_000) { importedText != null }
+        assertTrue(importedText!!.contains("ads.example.com"))
     }
 
     @Test
-    fun mitmFeatureSwitchWritesBothContractFlags() {
-        setRules()
+    fun sourceTogglePersistsViaConfig() {
+        setRules(initialTab = 3)
 
-        scrollRulesTo("feature-switch:mitm")
-        composeRule.onNodeWithTag("feature-switch:mitm").performClick()
-        settle()
-
-        val config = lastConfig
-        assertTrue(config != null)
-        assertEquals(false, config!!.proxy.mitmEnabled)
-        assertEquals(false, config.mitm.enabled)
+        composeRule.onNodeWithTag("source-switch:custom-example").performClick()
+        composeRule.waitUntil(timeoutMillis = 5_000) { lastConfig != null }
+        val source = lastConfig?.ruleSources?.firstOrNull { it.id == "custom-example" }
+        assertEquals(true, source?.enabled)
     }
 
     @Test
-    fun proxyFeatureSwitchPersists() {
-        setRules()
+    fun sourcesScrollToLastCard() {
+        setRules(initialTab = 3)
 
-        scrollRulesTo("feature-switch:proxy")
-        composeRule.onNodeWithTag("feature-switch:proxy").performClick()
-        settle()
+        composeRule.onNodeWithTag("sources-list")
+            .performScrollToNode(hasTestTag("source-refresh:custom-example"))
+        composeRule.onNodeWithTag("source-refresh:custom-example").performClick()
+        composeRule.waitUntil(timeoutMillis = 5_000) { refreshCalls == 1 }
+    }
 
-        assertEquals(false, lastConfig?.proxy?.enabled)
+    private fun scrollToText(text: String) {
+        composeRule.onNodeWithTag("rules-list").performScrollToNode(hasText(text))
     }
 }

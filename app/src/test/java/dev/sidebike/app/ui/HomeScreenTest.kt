@@ -81,12 +81,16 @@ class HomeScreenTest : ComposeTestBase() {
 
         composeRule.onNodeWithText("停止服务").assertExists()
         composeRule.onAllNodesWithText("运行中").onFirst().assertExists()
-        // Hero 信息层级：headline 带运行时长；subtitle 为真实能力行
-        composeRule.onNodeWithText("已连接 · 1:02:04").assertExists()
+        // 0.1.1-alpha item 9：Hero 不再显示"加速时长"，headline 只有状态语义
+        composeRule.onNodeWithText("已连接").assertExists()
         composeRule.onNodeWithText("DNS 防污染已生效 · 系统代理已注册 · MITM 已开启").assertExists()
         composeRule.onNodeWithText("VPN 已连接").assertExists()
         composeRule.onNodeWithText("代理 :31181").assertExists()
         composeRule.onAllNodesWithText("MITM 已开启").onFirst().assertExists()
+
+        // 不再显示运行时长
+        composeRule.onNodeWithText("已运行", substring = true).assertDoesNotExist()
+        composeRule.onNodeWithText("1:02:04", substring = true).assertDoesNotExist()
 
         // 统计数字：动画结束后显示目标值
         composeRule.onNodeWithText("128").assertExists()
@@ -116,10 +120,17 @@ class HomeScreenTest : ComposeTestBase() {
     }
 
     @Test
-    fun busyStatusShowsProgressAndDisablesButton() {
+    fun busyStatusShowsExactlyOneProgressIndicatorAndDisablesButton() {
         setHome(PreviewData.state(status = RunStatus.STARTING))
 
         composeRule.onNodeWithText("启动中…").assertIsNotEnabled()
+        // 0.1.1-alpha item 9：busy 时全页只保留 1 个进度指示器（RunControlButton 内）
+        val progressNodes = composeRule.onAllNodes(
+            androidx.compose.ui.test.SemanticsMatcher.keyIsDefined(
+                androidx.compose.ui.semantics.SemanticsProperties.ProgressBarRangeInfo,
+            ),
+        ).fetchSemanticsNodes()
+        assertEquals(1, progressNodes.size)
     }
 
     @Test

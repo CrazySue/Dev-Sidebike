@@ -68,10 +68,10 @@ class StatusMappingTest {
 
     @Test
     fun caStatusMapping() {
-        assertEquals(CaStatus.INSTALLED, caStatusOf(caInstalled = true, mitmEnabled = false))
-        assertEquals(CaStatus.NOT_INSTALLED, caStatusOf(caInstalled = false, mitmEnabled = true))
-        assertEquals(CaStatus.NOT_GENERATED, caStatusOf(caInstalled = false, mitmEnabled = false))
-        assertNotEquals(CaStatus.INSTALLED, caStatusOf(caInstalled = false, mitmEnabled = false))
+        assertEquals(CaStatus.INSTALLED, caStatusOf(caInstalled = true, installAttempted = false))
+        assertEquals(CaStatus.NEEDS_RECHECK, caStatusOf(caInstalled = false, installAttempted = true))
+        assertEquals(CaStatus.NOT_INSTALLED, caStatusOf(caInstalled = false, installAttempted = false))
+        assertNotEquals(CaStatus.INSTALLED, caStatusOf(caInstalled = false, installAttempted = true))
     }
 
     @Test

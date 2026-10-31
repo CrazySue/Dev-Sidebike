@@ -9,7 +9,9 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
-import dev.sidebike.app.state.RunStatus
+import dev.sidebike.app.ui.CaInstallLaunchStatus
+import dev.sidebike.app.ui.CaInstallUiResult
+import dev.sidebike.app.ui.EmptySidebikeActions
 import dev.sidebike.app.ui.SidebikeAppContent
 import dev.sidebike.app.ui.screens.CertGuideScreen
 import dev.sidebike.app.ui.screens.HomeScreen
@@ -20,7 +22,7 @@ import dev.sidebike.app.ui.theme.SidebikeTheme
 
 /**
  * 所有屏幕的 MD3 @Preview：每个屏幕都提供 浅色/深色 两套（uiMode = NIGHT_YES）。
- * Preview 数据来自 [PreviewData]，callbacks 为空操作，不访问网络、不依赖真实 controller。
+ * Preview 数据来自 [PreviewData]，actions 为空实现，不访问网络、不依赖真实 controller。
  */
 
 private val NoPadding = PaddingValues(0.dp)
@@ -108,9 +110,10 @@ private fun HomeScreenIdlePreview() {
 private fun RulesScreenPreview() {
     PreviewCanvas {
         RulesScreen(
-            config = PreviewData.config,
+            state = PreviewData.state(),
             contentPadding = NoPadding,
-            onConfigChange = {},
+            actions = EmptySidebikeActions,
+            onShowMessage = {},
         )
     }
 }
@@ -127,9 +130,31 @@ private fun RulesScreenPreview() {
 private fun RulesScreenEmptyPreview() {
     PreviewCanvas {
         RulesScreen(
-            config = PreviewData.emptyConfig,
+            state = PreviewData.emptyState,
             contentPadding = NoPadding,
-            onConfigChange = {},
+            actions = EmptySidebikeActions,
+            onShowMessage = {},
+        )
+    }
+}
+
+@Preview(name = "规则源 · 浅色", showBackground = true, widthDp = 412, heightDp = 915)
+@Preview(
+    name = "规则源 · 深色",
+    showBackground = true,
+    widthDp = 412,
+    heightDp = 915,
+    uiMode = Configuration.UI_MODE_NIGHT_YES,
+)
+@Composable
+private fun RulesSourcesPreview() {
+    PreviewCanvas {
+        RulesScreen(
+            state = PreviewData.state(),
+            contentPadding = NoPadding,
+            actions = EmptySidebikeActions,
+            onShowMessage = {},
+            initialTab = 3,
         )
     }
 }
@@ -219,34 +244,52 @@ private fun SettingsScreenPreview() {
 private fun CertGuideScreenPreview() {
     PreviewCanvas {
         CertGuideScreen(
-            state = PreviewData.state(RunStatus.RUNNING, caInstalled = false),
+            state = PreviewData.state(caInstalled = false),
             contentPadding = NoPadding,
-            onInstallCa = {},
-            onExportCa = {},
+            onPrepareInstall = {
+                CaInstallUiResult(
+                    status = CaInstallLaunchStatus.LAUNCHED,
+                    fingerprint = "AA:BB:CC:DD",
+                    subject = "CN=Dev-Sidebike CA",
+                )
+            },
+            onLoadCaInfo = {
+                CaInstallUiResult(
+                    status = CaInstallLaunchStatus.LAUNCHED,
+                    fingerprint = "AA:BB:CC:DD:EE:FF:00:11:22:33:44:55:66:77:88:99:AA:BB:CC:DD:EE:FF:00:11:22:33:44:55:66:77:88:99",
+                    subject = "CN=Dev-Sidebike CA, O=Dev-Sidebike",
+                )
+            },
+            onExportCaToFile = {},
             onRefreshCaInstalled = {},
-            onOpenSettings = {},
+            onOpenCaSettings = {},
+            onCopyFingerprint = {},
+            onShowMessage = {},
         )
     }
 }
 
-@Preview(name = "证书 · 未生成 · 浅色", showBackground = true, widthDp = 412, heightDp = 915)
+@Preview(name = "证书 · 已安装 · 浅色", showBackground = true, widthDp = 412, heightDp = 915)
 @Preview(
-    name = "证书 · 未生成 · 深色",
+    name = "证书 · 已安装 · 深色",
     showBackground = true,
     widthDp = 412,
     heightDp = 915,
     uiMode = Configuration.UI_MODE_NIGHT_YES,
 )
 @Composable
-private fun CertGuideScreenNotGeneratedPreview() {
+private fun CertGuideScreenInstalledPreview() {
     PreviewCanvas {
         CertGuideScreen(
-            state = PreviewData.emptyState,
+            state = PreviewData.state(caInstalled = true),
             contentPadding = NoPadding,
-            onInstallCa = {},
-            onExportCa = {},
+            onPrepareInstall = { CaInstallUiResult(CaInstallLaunchStatus.NO_CA) },
+            onLoadCaInfo = { CaInstallUiResult(CaInstallLaunchStatus.NO_CA) },
+            onExportCaToFile = {},
             onRefreshCaInstalled = {},
-            onOpenSettings = {},
+            onOpenCaSettings = {},
+            onCopyFingerprint = {},
+            onShowMessage = {},
         )
     }
 }
@@ -269,13 +312,7 @@ private fun SidebikeAppPreview() {
         SidebikeAppContent(
             state = PreviewData.state(),
             logs = PreviewData.logs,
-            requestStart = {},
-            onStop = {},
-            onConfigChange = {},
-            onClearLogs = {},
-            onRefreshCaInstalled = {},
-            onExportDiagnostics = { "" },
-            onLoadCaPem = { null },
+            actions = EmptySidebikeActions,
         )
     }
 }

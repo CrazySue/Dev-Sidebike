@@ -10,6 +10,9 @@ object UiFormat {
 
     private val timeFormatter: DateTimeFormatter = DateTimeFormatter.ofPattern("HH:mm:ss", Locale.CHINA)
 
+    private val dateTimeFormatter: DateTimeFormatter =
+        DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm", Locale.CHINA)
+
     /** 字节数 -> 人类可读单位（B / KB / MB / GB / TB，1024 进制）。 */
     fun bytes(bytes: Long): String {
         if (bytes < 0) return "0 B"
@@ -55,4 +58,10 @@ object UiFormat {
     /** 日志时间戳 -> HH:mm:ss。 */
     fun timeOfDay(epochMillis: Long): String =
         Instant.ofEpochMilli(epochMillis).atZone(ZoneId.systemDefault()).format(timeFormatter)
+
+    /** 规则源上次更新等时间戳 -> yyyy-MM-dd HH:mm；0/未知返回 "—"。 */
+    fun dateTime(epochMillis: Long): String {
+        if (epochMillis <= 0L) return "—"
+        return Instant.ofEpochMilli(epochMillis).atZone(ZoneId.systemDefault()).format(dateTimeFormatter)
+    }
 }

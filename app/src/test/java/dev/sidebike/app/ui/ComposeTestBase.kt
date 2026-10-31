@@ -8,7 +8,12 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.semantics.SemanticsActions
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
+import androidx.compose.ui.test.onNodeWithTag
+import androidx.compose.ui.test.performSemanticsAction
+import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.test.SemanticsNodeInteraction
 import dev.sidebike.app.ui.motion.LocalInfiniteAnimationsEnabled
 import dev.sidebike.app.ui.theme.SidebikeTheme
 import org.junit.Rule
@@ -56,6 +61,16 @@ abstract class ComposeTestBase {
         }
         screenContent.value = content
         composeRule.waitForIdle()
+    }
+
+    /**
+     * 测试专用文本输入：直接触发 semantics SetText（测试模式下 AppTextField 用静态语义节点渲染，
+     * 避免 OutlinedTextField 光标/IME 无限动画挂起）。调用后需 settle() 让 recomposition 生效。
+     */
+    protected fun setText(testTag: String, text: String) {
+        composeRule.onNodeWithTag(testTag).performSemanticsAction(SemanticsActions.SetText) { setTextAction ->
+            setTextAction(AnnotatedString(text))
+        }
     }
 
     /** 推进有限动画并等待稳定（点击/展开后调用）。 */

@@ -106,43 +106,48 @@ class NavigationTest : ComposeTestBase() {
         assertTextExists("暂无日志")
 
         clickNav("cert")
-        assertTextExists("尚未生成")
+        assertTextExists("CA 证书状态")
     }
 
     @Test
-    fun logsExportFabInvokesDiagnosticsExport() {
+    fun logsExportFabOpensExportSheet() {
         setApp()
 
         clickNav("logs")
         composeRule.onNodeWithTag("logs-export-fab").performClick()
+        settle()
 
-        composeRule.waitUntil(timeoutMillis = 5_000) { fake.exportCalls == 1 }
-        assertEquals(1, fake.exportCalls)
+        composeRule.onNodeWithTag("export-log-file").assertExists()
+        composeRule.onNodeWithTag("export-debug-bundle").assertExists()
+        composeRule.onNodeWithTag("export-copy-log").assertExists()
     }
 
     @Test
-    fun certGuideInstallRequestsCaPemFromController() {
+    fun certGuideInstallDialogConfirmsViaController() {
         setApp()
 
         clickNav("cert")
-        composeRule.onNodeWithText("安装 CA 证书").performClick()
+        composeRule.onNodeWithTag("cert-install-button").performClick()
+        settle()
+        composeRule.onNodeWithTag("cert-install-confirm").performClick()
 
-        composeRule.waitUntil(timeoutMillis = 5_000) { fake.caPemRequests == 1 }
-        assertEquals(1, fake.caPemRequests)
+        composeRule.waitUntil(timeoutMillis = 5_000) { fake.prepareCaInstallCalls >= 1 }
+        assertTrue(fake.prepareCaInstallCalls >= 1)
     }
 
     @Test
-    fun rulesToggleForwardsConfigUpdateToController() {
+    fun rulesSourcesPresetForwardsConfigUpdateToController() {
         setApp()
 
         clickNav("rules")
-        composeRule.onNodeWithTag("rules-list").performScrollToNode(hasTestTag("feature-switch:mitm"))
-        composeRule.onNodeWithTag("feature-switch:mitm").performClick()
+        composeRule.onNodeWithTag("rules-tab:3").performClick()
+        settle()
+        composeRule.onNodeWithTag("sources-add-preset").performClick()
 
-        composeRule.waitUntil(timeoutMillis = 5_000) { fake.updateConfigCalls == 1 }
+        composeRule.waitUntil(timeoutMillis = 5_000) { fake.updateConfigCalls >= 1 }
         val config = fake.lastConfig
         assertTrue(config != null)
-        assertEquals(false, config!!.mitm.enabled)
+        assertTrue(config!!.ruleSources.any { it.id == "johnshall-cnip" })
     }
 
     @Test
@@ -155,6 +160,18 @@ class NavigationTest : ComposeTestBase() {
 
         composeRule.waitUntil(timeoutMillis = 5_000) { fake.updateConfigCalls == 1 }
         assertEquals("dark", fake.lastConfig?.app?.themeMode)
+    }
+
+    @Test
+    fun settingsRulesLinkOpensRulesSourcesTab() {
+        setApp()
+
+        clickNav("settings")
+        composeRule.onNodeWithTag("settings-list").performScrollToNode(hasTestTag("settings-open-rules"))
+        composeRule.onNodeWithTag("settings-open-rules").performClick()
+        settle()
+
+        composeRule.onNodeWithTag("sources-list").assertExists()
     }
 
     @Test

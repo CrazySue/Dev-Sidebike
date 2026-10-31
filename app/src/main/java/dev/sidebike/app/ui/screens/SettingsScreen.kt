@@ -20,7 +20,13 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.Add
+import androidx.compose.material.icons.outlined.Article
 import androidx.compose.material.icons.outlined.ChevronRight
+import androidx.compose.material.icons.outlined.Delete
+import androidx.compose.material.icons.outlined.Info
+import androidx.compose.material.icons.outlined.NetworkCheck
+import androidx.compose.material.icons.outlined.Rule
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
@@ -28,6 +34,7 @@ import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.ListItem
 import androidx.compose.material3.ListItemDefaults
 import androidx.compose.material3.MaterialTheme
@@ -43,6 +50,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -54,8 +62,10 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import dev.sidebike.app.BuildConfig
 import dev.sidebike.app.R
+import dev.sidebike.app.ui.components.AppTextField
 import dev.sidebike.app.ui.components.SectionHeader
 import dev.sidebike.app.ui.components.StatusPill
+import dev.sidebike.app.ui.components.TimeoutPresets
 import dev.sidebike.app.ui.components.mitmCaSettingsLabelRes
 import dev.sidebike.app.ui.components.mitmCaStatusOf
 import dev.sidebike.app.ui.motion.LocalInfiniteAnimationsEnabled
@@ -64,6 +74,7 @@ import dev.sidebike.app.ui.theme.ThemeMode
 import dev.sidebike.core.api.DnsMode
 import dev.sidebike.core.api.DnsProvider
 import dev.sidebike.core.api.SidebikeConfig
+import kotlinx.coroutines.launch
 
 /**
  * 设置页：代理端口 / DNS 模式与 Provider / MITM 与 CA / 通用 / 外观（主题+动态取色）/ 关于与许可。
@@ -81,10 +92,24 @@ fun SettingsScreen(
     onRefreshCaInstalled: () -> Unit,
     onExportCa: () -> Unit,
     modifier: Modifier = Modifier,
+    diagnosticsRunning: Boolean = false,
+    onRunNetworkDiagnostics: suspend () -> String = { "" },
+    onSaveTextFile: (suggestedName: String, content: String) -> Unit = { _, _ -> },
+    onCopyText: (String) -> Unit = {},
+    onOpenRules: () -> Unit = {},
+    onOpenLogs: () -> Unit = {},
+    onShowMessage: (String) -> Unit = {},
+    onSetMitmEnabled: suspend (Boolean) -> dev.sidebike.app.controller.MitmToggleResult = {
+        dev.sidebike.app.controller.MitmToggleResult(it)
+    },
 ) {
+    val scope = rememberCoroutineScope()
     var showPortDialog by rememberSaveable { mutableStateOf(false) }
     var showAboutDialog by rememberSaveable { mutableStateOf(false) }
     var showLicensesDialog by rememberSaveable { mutableStateOf(false) }
+    var showDnsDetailsDialog by rememberSaveable { mutableStateOf(false) }
+    var showHostDialog by rememberSaveable { mutableStateOf(false) }
+    var diagnosticsText by remember { mutableStateOf<String?>(null) }
     val mitmEnabled = config.proxy.mitmEnabled || config.mitm.enabled
 
     LazyColumn(
@@ -144,6 +169,49 @@ fun SettingsScreen(
                         onConfigChange(config.copy(proxy = config.proxy.copy(bypassDomestic = enabled)))
                     },
                 )
+            }
+        }
+
+        item(key = "timeouts-header") {
+            SectionHeader(title = stringResource(R.string.settings_timeouts_title))
+        }
+        item(key = "timeouts-card") {
+            SettingsCard {
+                Column(
+                    modifier = Modifier.padding(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    Text(
+                        text = stringResource(R.string.settings_timeouts_desc),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth()) {
+                        TimeoutPresets.all.forEachIndexed { index, preset ->
+                            SegmentedButton(
+                                selected = TimeoutPresets.current(config)?.id == preset.id,
+                                onClick = {
+                                    onConfigChange(TimeoutPresets.apply(config, preset))
+                                    onShowMessage("超时预设已保存（对新建连接生效）")
+                                },
+                                shape = SegmentedButtonDefaults.itemShape(
+                                    index = index,
+                                    count = TimeoutPresets.all.size,
+                                ),
+                                modifier = Modifier.testTag("timeout-${preset.id}"),
+                            ) {
+                                Text(stringResource(preset.labelRes))
+                            }
+                        }
+                    }
+                    TimeoutPresets.current(config)?.let { preset ->
+                        Text(
+                            text = stringResource(preset.descRes),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                }
             }
         }
 
@@ -216,6 +284,116 @@ fun SettingsScreen(
                         )
                     }
                 }
+                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+                ListItem(
+                    headlineContent = { Text(stringResource(R.string.settings_dns_details)) },
+                    supportingContent = {
+                        Text(
+                            stringResource(
+                                R.string.settings_dns_providers_count,
+                                config.dns.providers.size,
+                                config.dns.providers.count { it.value.enabled },
+                            ),
+                        )
+                    },
+                    trailingContent = {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text(
+                                text = stringResource(
+                                    R.string.settings_dns_mapping_count,
+                                    config.dns.mapping.size,
+                                ),
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                            Icon(
+                                imageVector = Icons.Outlined.ChevronRight,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                    },
+                    colors = settingsItemColors(),
+                    modifier = Modifier
+                        .clickable { showDnsDetailsDialog = true }
+                        .testTag("settings-dns-details"),
+                )
+                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+                Column(modifier = Modifier.padding(16.dp)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Text(
+                            text = stringResource(R.string.settings_hosts_title),
+                            style = MaterialTheme.typography.bodyLarge,
+                            color = MaterialTheme.colorScheme.onSurface,
+                            modifier = Modifier.weight(1f),
+                        )
+                        TextButton(
+                            onClick = { showHostDialog = true },
+                            modifier = Modifier.testTag("settings-host-add"),
+                        ) {
+                            Icon(
+                                imageVector = Icons.Outlined.Add,
+                                contentDescription = null,
+                                modifier = Modifier.size(18.dp),
+                            )
+                            Text(stringResource(R.string.settings_hosts_add))
+                        }
+                    }
+                    Text(
+                        text = stringResource(R.string.settings_hosts_desc),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    if (config.dns.hosts.isEmpty()) {
+                        Text(
+                            text = stringResource(R.string.settings_hosts_empty),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(top = 8.dp),
+                        )
+                    } else {
+                        config.dns.hosts.forEach { (domain, ip) ->
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .testTag("host-item:$domain"),
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text(
+                                        text = domain,
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        color = MaterialTheme.colorScheme.onSurface,
+                                    )
+                                    Text(
+                                        text = ip,
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    )
+                                }
+                                IconButton(
+                                    onClick = {
+                                        onConfigChange(
+                                            config.copy(
+                                                dns = config.dns.copy(hosts = config.dns.hosts - domain),
+                                            ),
+                                        )
+                                    },
+                                    modifier = Modifier.testTag("host-remove:$domain"),
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Outlined.Delete,
+                                        contentDescription = stringResource(R.string.settings_host_remove),
+                                        tint = MaterialTheme.colorScheme.error,
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
             }
         }
 
@@ -228,14 +406,59 @@ fun SettingsScreen(
                     checked = mitmEnabled,
                     tag = "switch:mitm",
                     onCheckedChange = { enabled ->
-                        onConfigChange(
-                            config.copy(
-                                proxy = config.proxy.copy(mitmEnabled = enabled),
-                                mitm = config.mitm.copy(enabled = enabled),
-                            ),
-                        )
+                        // 0.1.1-alpha：MITM 由 controller.setMitmEnabled 门控（CA 未安装会被拒绝）
+                        scope.launch {
+                            if (!enabled) {
+                                // 关闭 MITM 永远允许（不需要 CA）
+                                onConfigChange(
+                                    config.copy(
+                                        proxy = config.proxy.copy(mitmEnabled = false),
+                                        mitm = config.mitm.copy(enabled = false),
+                                    ),
+                                )
+                                onShowMessage("MITM 已关闭")
+                            } else {
+                                val result = onSetMitmEnabled(true)
+                                if (!result.effective) {
+                                    onShowMessage(result.message ?: "需要先安装 CA 证书")
+                                } else {
+                                    onConfigChange(
+                                        config.copy(
+                                            proxy = config.proxy.copy(mitmEnabled = true),
+                                            mitm = config.mitm.copy(enabled = true),
+                                        ),
+                                    )
+                                    onShowMessage("MITM 已开启（仅对信任用户 CA 的应用生效）")
+                                }
+                            }
+                        }
                     },
                 )
+                Text(
+                    text = stringResource(R.string.settings_mitm_note),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+                )
+                if ((config.proxy.mitmEnabled || config.mitm.enabled) && !caInstalled) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 16.dp, vertical = 4.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        Text(
+                            text = stringResource(R.string.cert_mitm_auto_disabled),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.error,
+                            modifier = Modifier.weight(1f),
+                        )
+                        TextButton(onClick = onOpenCertGuide) {
+                            Text(stringResource(R.string.action_open_cert))
+                        }
+                    }
+                }
                 HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
                 ListItem(
                     headlineContent = { Text(stringResource(R.string.settings_ca_status)) },
@@ -288,6 +511,105 @@ fun SettingsScreen(
                     onCheckedChange = { enabled ->
                         onConfigChange(config.copy(app = config.app.copy(autoStartOnBoot = enabled)))
                     },
+                )
+            }
+        }
+
+        item(key = "diagnostics-header") {
+            SectionHeader(title = stringResource(R.string.settings_section_diagnostics))
+        }
+        item(key = "diagnostics-card") {
+            SettingsCard {
+                ListItem(
+                    headlineContent = { Text(stringResource(R.string.settings_run_diagnostics)) },
+                    supportingContent = { Text(stringResource(R.string.settings_run_diagnostics_desc)) },
+                    leadingContent = { Icon(Icons.Outlined.NetworkCheck, contentDescription = null) },
+                    trailingContent = {
+                        if (diagnosticsRunning) {
+                            if (LocalInfiniteAnimationsEnabled.current) {
+                                androidx.compose.material3.CircularProgressIndicator(
+                                    modifier = Modifier.size(18.dp),
+                                    strokeWidth = 2.dp,
+                                )
+                            } else {
+                                androidx.compose.material3.CircularProgressIndicator(
+                                    progress = { 0.6f },
+                                    modifier = Modifier.size(18.dp),
+                                    strokeWidth = 2.dp,
+                                )
+                            }
+                        } else {
+                            Icon(
+                                imageVector = Icons.Outlined.ChevronRight,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                    },
+                    colors = settingsItemColors(),
+                    modifier = Modifier
+                        .clickable {
+                            if (!diagnosticsRunning) {
+                                scope.launch {
+                                    val report = runCatching { onRunNetworkDiagnostics() }
+                                        .getOrElse { error ->
+                                            onShowMessage(error.message ?: "网络诊断失败")
+                                            ""
+                                        }
+                                    if (report.isNotBlank()) diagnosticsText = report
+                                }
+                            }
+                        }
+                        .testTag("settings-run-diagnostics"),
+                )
+                if (diagnosticsRunning) {
+                    Text(
+                        text = stringResource(R.string.settings_diagnostics_running),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+                    )
+                }
+            }
+        }
+
+        item(key = "links-header") {
+            SectionHeader(title = stringResource(R.string.settings_section_more))
+        }
+        item(key = "links-card") {
+            SettingsCard {
+                ListItem(
+                    headlineContent = { Text(stringResource(R.string.settings_open_rules)) },
+                    supportingContent = { Text(stringResource(R.string.settings_open_rules_desc)) },
+                    leadingContent = { Icon(Icons.Outlined.Rule, contentDescription = null) },
+                    trailingContent = {
+                        Icon(
+                            imageVector = Icons.Outlined.ChevronRight,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    },
+                    colors = settingsItemColors(),
+                    modifier = Modifier
+                        .clickable(onClick = onOpenRules)
+                        .testTag("settings-open-rules"),
+                )
+                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+                ListItem(
+                    headlineContent = { Text(stringResource(R.string.settings_open_logs)) },
+                    supportingContent = { Text(stringResource(R.string.settings_open_logs_desc)) },
+                    leadingContent = { Icon(Icons.Outlined.Article, contentDescription = null) },
+                    trailingContent = {
+                        Icon(
+                            imageVector = Icons.Outlined.ChevronRight,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    },
+                    colors = settingsItemColors(),
+                    modifier = Modifier
+                        .clickable(onClick = onOpenLogs)
+                        .testTag("settings-open-logs"),
                 )
             }
         }
@@ -399,6 +721,34 @@ fun SettingsScreen(
     }
     if (showLicensesDialog) {
         LicensesDialog(onDismiss = { showLicensesDialog = false })
+    }
+    if (showDnsDetailsDialog) {
+        DnsDetailsDialog(
+            config = config,
+            onDismiss = { showDnsDetailsDialog = false },
+            onCopyText = onCopyText,
+        )
+    }
+    if (showHostDialog) {
+        AddHostDialog(
+            onDismiss = { showHostDialog = false },
+            onAdd = { domain, ip ->
+                showHostDialog = false
+                onConfigChange(config.copy(dns = config.dns.copy(hosts = config.dns.hosts + (domain to ip))))
+                onShowMessage("已添加 hosts：$domain → $ip")
+            },
+        )
+    }
+    diagnosticsText?.let { report ->
+        DiagnosticsResultDialog(
+            text = report,
+            onDismiss = { diagnosticsText = null },
+            onCopyText = onCopyText,
+            onSaveFile = {
+                onSaveTextFile("dev-sidebike-diagnostics.txt", report)
+                diagnosticsText = null
+            },
+        )
     }
 }
 
@@ -598,6 +948,14 @@ private fun AboutDialog(onDismiss: () -> Unit) {
                     style = MaterialTheme.typography.titleSmall,
                 )
                 Text(text = stringResource(R.string.about_tech_body), style = MaterialTheme.typography.bodyMedium)
+                Text(
+                    text = stringResource(R.string.about_rule_source_title),
+                    style = MaterialTheme.typography.titleSmall,
+                )
+                Text(
+                    text = stringResource(R.string.about_rule_source_body),
+                    style = MaterialTheme.typography.bodyMedium,
+                )
             }
         },
         confirmButton = {
@@ -642,6 +1000,168 @@ private fun LicensesDialog(onDismiss: () -> Unit) {
             }
         },
     )
+}
+
+@Composable
+private fun DnsDetailsDialog(
+    config: SidebikeConfig,
+    onDismiss: () -> Unit,
+    onCopyText: (String) -> Unit,
+) {
+    val details = buildString {
+        appendLine(
+            stringResource(
+                R.string.settings_dns_providers_count,
+                config.dns.providers.size,
+                config.dns.providers.count { it.value.enabled },
+            ),
+        )
+        appendLine(stringResource(R.string.settings_dns_mapping_count, config.dns.mapping.size))
+        appendLine(stringResource(R.string.settings_dns_family_count, config.dns.familyMapping.size))
+        appendLine(stringResource(R.string.settings_dns_preset_count, config.preSetIpList.size))
+        if (config.dns.mapping.isNotEmpty()) {
+            appendLine()
+            appendLine(stringResource(R.string.settings_dns_mapping_title))
+            config.dns.mapping.entries.take(50).forEach { (domain, provider) ->
+                appendLine("$domain → $provider")
+            }
+        }
+    }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(stringResource(R.string.settings_dns_details)) },
+        text = {
+            Text(
+                text = details,
+                style = MaterialTheme.typography.bodySmall,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .verticalScroll(rememberScrollState()),
+            )
+        },
+        confirmButton = {
+            TextButton(onClick = { onCopyText(details) }) {
+                Text(stringResource(R.string.action_copy))
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text(stringResource(R.string.action_close))
+            }
+        },
+        modifier = Modifier.testTag("dns-details-dialog"),
+    )
+}
+
+@Composable
+private fun AddHostDialog(
+    onDismiss: () -> Unit,
+    onAdd: (domain: String, ip: String) -> Unit,
+) {
+    var domain by remember { mutableStateOf("") }
+    var ip by remember { mutableStateOf("") }
+    val domainValid = isValidHostDomain(domain)
+    val ipValid = isValidIpAddress(ip)
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(stringResource(R.string.settings_hosts_add)) },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                AppTextField(
+                    value = domain,
+                    onValueChange = { domain = it },
+                    label = stringResource(R.string.settings_host_domain),
+                    isError = domain.isNotEmpty() && !domainValid,
+                    testTag = "host-domain-input",
+                )
+                AppTextField(
+                    value = ip,
+                    onValueChange = { ip = it },
+                    label = stringResource(R.string.settings_host_ip),
+                    isError = ip.isNotEmpty() && !ipValid,
+                    testTag = "host-ip-input",
+                )
+                if ((domain.isNotEmpty() && !domainValid) || (ip.isNotEmpty() && !ipValid)) {
+                    Text(
+                        text = stringResource(R.string.settings_host_invalid),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.error,
+                    )
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(
+                onClick = { onAdd(domain.trim(), ip.trim()) },
+                enabled = domainValid && ipValid,
+                modifier = Modifier.testTag("host-add-confirm"),
+            ) {
+                Text(stringResource(R.string.action_add))
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text(stringResource(R.string.action_cancel))
+            }
+        },
+        modifier = Modifier.testTag("host-add-dialog"),
+    )
+}
+
+@Composable
+private fun DiagnosticsResultDialog(
+    text: String,
+    onDismiss: () -> Unit,
+    onCopyText: (String) -> Unit,
+    onSaveFile: () -> Unit,
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(stringResource(R.string.settings_diagnostics_result)) },
+        text = {
+            Text(
+                text = text,
+                style = MaterialTheme.typography.bodySmall,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .verticalScroll(rememberScrollState()),
+            )
+        },
+        confirmButton = {
+            TextButton(onClick = onSaveFile, modifier = Modifier.testTag("diagnostics-save")) {
+                Text(stringResource(R.string.settings_diagnostics_save))
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = { onCopyText(text) }) {
+                Text(stringResource(R.string.action_copy))
+            }
+        },
+        modifier = Modifier.testTag("diagnostics-dialog"),
+    )
+}
+
+/** hosts 域名轻量校验（纯函数，可单测）。 */
+fun isValidHostDomain(domain: String): Boolean {
+    val value = domain.trim()
+    if (value.isEmpty() || value.length > 253 || value.any { it.isWhitespace() }) return false
+    return value.contains('.') && value.none { it == '/' } && value.none { it == ':' }
+}
+
+/** hosts IP 轻量校验：IPv4 或含冒号的 IPv6（纯函数，可单测）。 */
+fun isValidIpAddress(ip: String): Boolean {
+    val value = ip.trim()
+    if (value.isEmpty()) return false
+    if (value.contains(':')) {
+        return value.length <= 45 && value.count { it == ':' } >= 2 &&
+            value.all { it.isDigit() || it in 'a'..'f' || it in 'A'..'F' || it == ':' || it == '.' }
+    }
+    val parts = value.split('.')
+    if (parts.size != 4) return false
+    return parts.all { part ->
+        val number = part.toIntOrNull()
+        number != null && number in 0..255 && part.isNotEmpty() && part.length <= 3
+    }
 }
 
 private fun dnsModeLabelRes(mode: DnsMode): Int = when (mode) {

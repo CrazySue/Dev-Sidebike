@@ -7,6 +7,8 @@ import dev.sidebike.core.api.LogEntry
 import dev.sidebike.core.api.LogLevel
 import dev.sidebike.core.api.MitmSettings
 import dev.sidebike.core.api.ProxySettings
+import dev.sidebike.core.api.RuleSource
+import dev.sidebike.core.api.RuleSourceFormat
 import dev.sidebike.core.api.SidebikeConfig
 import dev.sidebike.core.api.TrafficStats
 import kotlinx.serialization.json.JsonPrimitive
@@ -40,7 +42,35 @@ object PreviewData {
                 "/" to InterceptAction(proxy = "gstatic.loli.net:443", status = 200),
             ),
         ),
-        whiteList = mapOf("raw.githubusercontent.com" to true),
+        whiteList = mapOf(
+            "raw.githubusercontent.com" to true,
+            "*.internal.example.com" to true,
+        ),
+        domesticAllowList = listOf("example.cn", "baidu.com", "qq.com", "taobao.com"),
+        disabledIntercepts = listOf("www.gstatic.com\t/"),
+        ruleSources = listOf(
+            RuleSource(
+                id = "johnshall-cnip",
+                name = "国内外分流（推荐）",
+                url = "https://raw.githubusercontent.com/Johnshall/Shadowrocket-ADBlock-Rules-Forever/release/sr_cnip.conf",
+                format = RuleSourceFormat.AUTO,
+                enabled = true,
+                autoUpdate = true,
+                updateIntervalHours = 24,
+                lastUpdatedMs = System.currentTimeMillis() - 3_600_000,
+                lastImported = 1237,
+            ),
+            RuleSource(
+                id = "custom-example",
+                name = "自定义规则源",
+                url = "https://example.com/rules.list",
+                format = RuleSourceFormat.SHADOWROCKET_LIST,
+                enabled = false,
+                autoUpdate = false,
+                updateIntervalHours = 0,
+                lastError = "连接超时",
+            ),
+        ),
     )
 
     val stats: TrafficStats = TrafficStats(
@@ -101,6 +131,8 @@ object PreviewData {
         lockdownDetected: Boolean = false,
         systemProxyRegistered: Boolean? = if (status == RunStatus.RUNNING) true else null,
         effectiveProxyPort: Int = config.proxy.port,
+        ruleSourcesBusy: Boolean = false,
+        diagnosticsRunning: Boolean = false,
     ): SidebikeUiState = SidebikeUiState(
         status = status,
         statusMessage = "",
@@ -121,6 +153,8 @@ object PreviewData {
         privateDnsActive = privateDnsActive,
         lockdownDetected = lockdownDetected,
         effectiveProxyPort = effectiveProxyPort,
+        ruleSourcesBusy = ruleSourcesBusy,
+        diagnosticsRunning = diagnosticsRunning,
     )
 
     /** 空数据（新安装 / 占位状态）——所有屏幕必须能安全渲染。 */

@@ -1,517 +1,489 @@
-@file:OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
+@file:OptIn(ExperimentalMaterial3Api::class)
 
 package dev.sidebike.app.ui.screens
 
-import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.animateContentSize
+import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
-import androidx.compose.foundation.ExperimentalFoundationApi
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.outlined.Close
-import androidx.compose.material.icons.outlined.ExpandMore
-import androidx.compose.material.icons.outlined.Inbox
 import androidx.compose.material.icons.outlined.Search
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
-import androidx.compose.material3.ListItem
-import androidx.compose.material3.ListItemDefaults
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.Surface
-import androidx.compose.material3.Switch
+import androidx.compose.material3.PrimaryTabRow
+import androidx.compose.material3.Tab
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.rotate
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import dev.sidebike.app.R
-import dev.sidebike.app.ui.components.EmptyState
-import dev.sidebike.app.ui.components.SectionHeader
-import dev.sidebike.app.ui.components.StatusPill
-import dev.sidebike.app.ui.motion.M3ListItemFadeInSpec
-import dev.sidebike.app.ui.motion.M3ListItemFadeOutSpec
-import dev.sidebike.app.ui.motion.M3ListItemPlacementSpec
+import dev.sidebike.app.controller.RuleDraft
+import dev.sidebike.app.state.SidebikeUiState
+import dev.sidebike.app.ui.SidebikeActions
+import dev.sidebike.app.ui.components.AppTextField
 import dev.sidebike.app.ui.motion.M3Motion
-import dev.sidebike.app.ui.motion.m3ExpandIn
-import dev.sidebike.app.ui.motion.m3ShrinkOut
+import dev.sidebike.app.ui.motion.m3FadeThrough
+import dev.sidebike.app.ui.rules.RuleActionType
+import dev.sidebike.app.ui.rules.RuleSourcePresets
+import dev.sidebike.app.ui.rules.directPassDomains
+import dev.sidebike.app.ui.rules.domesticDomains
+import dev.sidebike.app.ui.rules.withRule
 import dev.sidebike.core.api.InterceptAction
-import dev.sidebike.core.api.SidebikeConfig
+import dev.sidebike.core.api.RuleSource
+import dev.sidebike.core.api.RuleSourceFormat
+import kotlinx.coroutines.launch
 
-/** 规则动作类型（用于列表摘要 chips，纯 Kotlin，可单测）。 */
-enum class RuleActionKind { SNI, PROXY, SYNTHETIC, SCRIPT, STATUS, CACHE }
-
-/** 汇总一组路径规则里出现的动作类型（去重、稳定顺序）。 */
-fun ruleActionKinds(actions: Map<String, InterceptAction>): List<RuleActionKind> {
-    val kinds = mutableSetOf<RuleActionKind>()
-    actions.values.forEach { action ->
-        action.sni?.let { kinds += RuleActionKind.SNI }
-        action.proxy?.let { kinds += RuleActionKind.PROXY }
-        action.success?.let { kinds += RuleActionKind.SYNTHETIC }
-        action.script?.let { kinds += RuleActionKind.SCRIPT }
-        action.status?.let { kinds += RuleActionKind.STATUS }
-        action.cacheDays?.let { kinds += RuleActionKind.CACHE }
-    }
-    return kinds.toList()
+/** 规则页 4 个 tab 的下标（与 PrimaryTabRow 顺序一致）。 */
+object RulesTab {
+    const val INTERCEPTS = 0
+    const val DIRECT_PASS = 1
+    const val DOMESTIC = 2
+    const val SOURCES = 3
 }
 
-/** 域名的"直连放行"状态：whiteList[domain] == true 表示不参与代理/MITM。 */
-fun SidebikeConfig.isDomainIntercepted(domain: String): Boolean = whiteList[domain] != true
+/** 规则编辑对话框的输入状态。 */
+private data class RuleEditorState(
+    val draft: RuleDraft,
+    val actionType: RuleActionType,
+    val editing: Boolean,
+)
 
-/** 切换某个域名的"直连放行"（写 whiteList，不修改只读的 intercepts 规则）。 */
-fun SidebikeConfig.withDomainIntercepted(domain: String, intercepted: Boolean): SidebikeConfig =
-    copy(whiteList = if (intercepted) whiteList - domain else whiteList + (domain to true))
-
-/** 动作详情字段（纯 Kotlin 枚举，UI 层再映射到中文资源）。 */
-enum class InterceptDetailLabel {
-    SNI,
-    PROXY,
-    SUCCESS,
-    SCRIPT,
-    STATUS,
-    CACHE_DAYS,
-    REQUEST_REPLACE,
-    RESPONSE_REPLACE,
-    DESC,
-    REMARK,
-}
-
-/** 显示用：动作详情行（字段 -> 值）；空值不展示。 */
-fun interceptActionDetails(action: InterceptAction): List<Pair<InterceptDetailLabel, String?>> = buildList {
-    action.sni?.let { add(InterceptDetailLabel.SNI to it) }
-    action.proxy?.let { add(InterceptDetailLabel.PROXY to it) }
-    action.success?.let { add(InterceptDetailLabel.SUCCESS to "true") }
-    action.script?.let { add(InterceptDetailLabel.SCRIPT to it.take(80)) }
-    action.status?.let { add(InterceptDetailLabel.STATUS to it.toString()) }
-    action.cacheDays?.let { add(InterceptDetailLabel.CACHE_DAYS to it.toString()) }
-    action.requestReplace?.let { add(InterceptDetailLabel.REQUEST_REPLACE to null) }
-    action.responseReplace?.let { add(InterceptDetailLabel.RESPONSE_REPLACE to null) }
-    action.desc?.let { add(InterceptDetailLabel.DESC to it) }
-    action.remark?.let { add(InterceptDetailLabel.REMARK to it) }
-}
-
-private fun detailLabelRes(label: InterceptDetailLabel): Int = when (label) {
-    InterceptDetailLabel.SNI -> R.string.rules_detail_sni
-    InterceptDetailLabel.PROXY -> R.string.rules_detail_proxy
-    InterceptDetailLabel.SUCCESS -> R.string.rules_detail_success
-    InterceptDetailLabel.SCRIPT -> R.string.rules_detail_script
-    InterceptDetailLabel.STATUS -> R.string.rules_detail_status
-    InterceptDetailLabel.CACHE_DAYS -> R.string.rules_detail_cache
-    InterceptDetailLabel.REQUEST_REPLACE -> R.string.rules_detail_request
-    InterceptDetailLabel.RESPONSE_REPLACE -> R.string.rules_detail_response
-    InterceptDetailLabel.DESC -> R.string.rules_detail_desc
-    InterceptDetailLabel.REMARK -> R.string.rules_detail_remark
-}
+/** 待删除的单条规则。 */
+private data class RuleDeleteTarget(val domain: String, val path: String)
 
 /**
- * 规则页：搜索 + 功能开关（代理规则/MITM/国内直连）+ 域名列表（直连放行 Switch + 展开动作详情）。
- *
- * 动效：列表项 `Modifier.animateItem`（fade/placement，MD3 token）；
- * 展开详情 `animateContentSize`（EmphasizedDecelerate, Medium2）+ `AnimatedVisibility`（expand/shrink）。
+ * 规则页（0.1.1-alpha item 4/5/6/7）：
+ * - 4 个 tab：拦截规则 / 直连放行 / 国内域名 / 规则源，共享顶部搜索与计数；
+ * - 拦截规则：展开/收起 + 编辑/删除 + 添加规则（SNI/镜像/abort），卡片 ripple 由 Card 裁剪；
+ * - 直连放行：添加/移除（controller.setDirectPassDomains）；
+ * - 国内域名：搜索/添加/移除/恢复默认（controller.setDomesticAllowList / reloadConfig）；
+ * - 规则源：推荐预设（Johnshall，CC BY-SA 4.0）/自定义/文本导入/立即刷新/编辑/删除/启停。
  */
 @Composable
 fun RulesScreen(
-    config: SidebikeConfig,
+    state: SidebikeUiState,
     contentPadding: PaddingValues,
-    onConfigChange: (SidebikeConfig) -> Unit,
+    actions: SidebikeActions,
+    onShowMessage: (String) -> Unit,
+    modifier: Modifier = Modifier,
+    initialTab: Int? = null,
+    onTabConsumed: () -> Unit = {},
+) {
+    val config = state.config
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val scope = rememberCoroutineScope()
+    var query by rememberSaveable { mutableStateOf("") }
+    var selectedTab by rememberSaveable { mutableStateOf((initialTab ?: RulesTab.INTERCEPTS).coerceIn(0, 3)) }
+    var expandedDomain by rememberSaveable { mutableStateOf<String?>(null) }
+
+    LaunchedEffect(initialTab) {
+        val requested = initialTab ?: return@LaunchedEffect
+        selectedTab = requested.coerceIn(0, 3)
+        onTabConsumed()
+    }
+
+    // 对话框状态
+    var ruleEditor by remember { mutableStateOf<RuleEditorState?>(null) }
+    var ruleDeleteTarget by remember { mutableStateOf<RuleDeleteTarget?>(null) }
+    var addDirectPass by remember { mutableStateOf(false) }
+    var addDomestic by remember { mutableStateOf(false) }
+    var resetDomestic by remember { mutableStateOf(false) }
+    var sourceEditor by remember { mutableStateOf<SourceEditorState?>(null) }
+    var deleteSourceTarget by remember { mutableStateOf<RuleSource?>(null) }
+    var showImport by remember { mutableStateOf(false) }
+
+    val interceptDomains = remember(config.intercepts) { config.intercepts.entries.sortedBy { it.key } }
+    val directDomains = remember(config.whiteList) { directPassDomains(config) }
+    val domestic = remember(config.domesticAllowList) { domesticDomains(config) }
+    val sources = config.ruleSources
+    val busy = state.ruleSourcesBusy
+
+    Column(
+        modifier = modifier
+            .fillMaxSize()
+            .padding(top = contentPadding.calculateTopPadding()),
+    ) {
+        Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
+            AppTextField(
+                value = query,
+                onValueChange = { query = it },
+                placeholder = stringResource(R.string.rules_search_hint),
+                singleLine = true,
+                testTag = "rules-search",
+            )
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(top = 4.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                Icon(
+                    imageVector = Icons.Outlined.Search,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Text(
+                    text = stringResource(
+                        R.string.rules_tab_summary,
+                        interceptDomains.sumOf { it.value.size },
+                        directDomains.size,
+                        domestic.size,
+                        sources.size,
+                    ),
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        }
+
+        PrimaryTabRow(selectedTabIndex = selectedTab) {
+            val tabs = listOf(
+                RulesTab.INTERCEPTS to stringResource(R.string.rules_tab_intercepts),
+                RulesTab.DIRECT_PASS to stringResource(R.string.rules_tab_direct),
+                RulesTab.DOMESTIC to stringResource(R.string.rules_tab_domestic),
+                RulesTab.SOURCES to stringResource(R.string.rules_tab_sources),
+            )
+            tabs.forEach { (index, label) ->
+                Tab(
+                    selected = selectedTab == index,
+                    onClick = { selectedTab = index },
+                    text = { Text(label, maxLines = 1) },
+                    modifier = Modifier.testTag("rules-tab:$index"),
+                )
+            }
+        }
+
+        AnimatedContent(
+            targetState = selectedTab,
+            modifier = Modifier
+                .fillMaxWidth()
+                .weight(1f),
+            transitionSpec = { m3FadeThrough() },
+            label = "rulesTabContent",
+        ) { tab ->
+            when (tab) {
+                RulesTab.INTERCEPTS -> InterceptsTabContent(
+                    config = config,
+                    query = query,
+                    expandedDomain = expandedDomain,
+                    contentPadding = contentPadding,
+                    onToggleExpanded = { domain ->
+                        expandedDomain = if (expandedDomain == domain) null else domain
+                    },
+                    onToggleDirectPass = { domain, directPass ->
+                        scope.launch {
+                            actions.setDirectPassDomains(
+                                if (directPass) {
+                                    (directPassDomains(config) + domain).distinct()
+                                } else {
+                                    directPassDomains(config) - domain
+                                },
+                            )
+                            onShowMessage(context.getString(R.string.direct_updated))
+                        }
+                    },
+                    onAddRule = {
+                        ruleEditor = RuleEditorState(
+                            draft = RuleDraft(domainPattern = "", pathRegex = ".*"),
+                            actionType = RuleActionType.SNI,
+                            editing = false,
+                        )
+                    },
+                    onEditRule = { domain, path, action ->
+                        ruleEditor = RuleEditorState(
+                            draft = RuleDraft(
+                                domainPattern = domain,
+                                pathRegex = path,
+                                sni = action.sni,
+                                proxy = action.proxy,
+                                desc = action.desc,
+                            ),
+                            actionType = actionTypeOf(action),
+                            editing = true,
+                        )
+                    },
+                    onDeleteRule = { domain, path ->
+                        ruleDeleteTarget = RuleDeleteTarget(domain, path)
+                    },
+                )
+
+                RulesTab.DIRECT_PASS -> DirectPassTabContent(
+                    domains = directDomains,
+                    query = query,
+                    contentPadding = contentPadding,
+                    onAdd = { addDirectPass = true },
+                    onRemove = { domain ->
+                        scope.launch {
+                            actions.setDirectPassDomains(directPassDomains(config) - domain)
+                            onShowMessage(context.getString(R.string.direct_updated))
+                        }
+                    },
+                )
+
+                RulesTab.DOMESTIC -> DomesticTabContent(
+                    domains = domestic,
+                    query = query,
+                    contentPadding = contentPadding,
+                    onAdd = { addDomestic = true },
+                    onRemove = { domain ->
+                        scope.launch {
+                            actions.setDomesticAllowList(domesticDomains(config) - domain)
+                        }
+                    },
+                    onReset = { resetDomestic = true },
+                )
+
+                RulesTab.SOURCES -> SourcesTabContent(
+                    sources = sources,
+                    busy = busy,
+                    query = query,
+                    contentPadding = contentPadding,
+                    onAddPreset = {
+                        val existingIds = sources.map { it.id }.toSet()
+                        val merged = RuleSourcePresets.mergeInto(sources)
+                        val added = merged.count { it.id !in existingIds }
+                        scope.launch {
+                            actions.updateConfig(config.copy(ruleSources = merged))
+                            onShowMessage(context.getString(R.string.domestic_updated))
+                        }
+                        if (added == 0) {
+                            onShowMessage(context.getString(R.string.source_preset_exists))
+                        } else {
+                            onShowMessage(context.getString(R.string.source_preset_added, added))
+                        }
+                    },
+                    onAddCustom = {
+                        sourceEditor = SourceEditorState(source = null, editing = false)
+                    },
+                    onImport = { showImport = true },
+                    onRefreshAll = {
+                        scope.launch {
+                            val summary = actions.refreshRuleSources(true)
+                            onShowMessage(refreshSummaryText(summary))
+                        }
+                    },
+                    onToggleEnabled = { source, enabled ->
+                        scope.launch {
+                            actions.updateConfig(
+                                config.copy(
+                                    ruleSources = sources.map { if (it.id == source.id) it.copy(enabled = enabled) else it },
+                                ),
+                            )
+                        }
+                    },
+                    onEdit = { source -> sourceEditor = SourceEditorState(source, editing = true) },
+                    onDelete = { source -> deleteSourceTarget = source },
+                    onRefreshOne = {
+                        scope.launch {
+                            val summary = actions.refreshRuleSources(true)
+                            onShowMessage(refreshSummaryText(summary))
+                        }
+                    },
+                )
+            }
+        }
+    }
+
+    // ------------------------------------------------------------------ dialogs
+    ruleEditor?.let { editor ->
+        RuleEditorDialog(
+            initial = if (editor.editing) editor.draft else null,
+            initialAction = editor.actionType,
+            onDismiss = { ruleEditor = null },
+            onSave = { draft, actionType ->
+                ruleEditor = null
+                scope.launch {
+                    if (actionType == RuleActionType.ABORT) {
+                        // 契约 RuleDraft 不含 abort：通过配置合并写入 InterceptAction(abort=true)
+                        actions.updateConfig(config.withRule(draft, actionType))
+                    } else {
+                        actions.saveRule(draft)
+                    }
+                    onShowMessage(context.getString(R.string.rule_saved))
+                }
+            },
+        )
+    }
+
+    ruleDeleteTarget?.let { target ->
+        ConfirmDialog(
+            title = stringResource(R.string.rules_delete_rule_title),
+            description = stringResource(
+                R.string.rules_delete_rule_desc,
+                target.domain,
+                target.path,
+            ),
+            confirmText = stringResource(R.string.action_delete),
+            onConfirm = {
+                ruleDeleteTarget = null
+                scope.launch {
+                    actions.deleteRule(target.domain, target.path)
+                    onShowMessage(context.getString(R.string.rule_deleted))
+                }
+            },
+            onDismiss = { ruleDeleteTarget = null },
+            modifier = Modifier.testTag("rule-delete-dialog"),
+        )
+    }
+
+    if (addDirectPass) {
+        SingleInputDialog(
+            title = stringResource(R.string.direct_pass_add),
+            label = stringResource(R.string.rule_domain_label),
+            placeholder = stringResource(R.string.direct_pass_domain_hint),
+            onDismiss = { addDirectPass = false },
+            onConfirm = { value ->
+                addDirectPass = false
+                if (value.isNotBlank()) {
+                    scope.launch {
+                        actions.setDirectPassDomains((directPassDomains(config) + value).distinct())
+                        onShowMessage(context.getString(R.string.direct_updated))
+                    }
+                }
+            },
+            modifier = Modifier.testTag("direct-add-dialog"),
+        )
+    }
+
+    if (addDomestic) {
+        SingleInputDialog(
+            title = stringResource(R.string.domestic_add),
+            label = stringResource(R.string.rule_domain_label),
+            placeholder = stringResource(R.string.direct_pass_domain_hint),
+            onDismiss = { addDomestic = false },
+            onConfirm = { value ->
+                addDomestic = false
+                if (value.isNotBlank()) {
+                    scope.launch {
+                        actions.setDomesticAllowList((domesticDomains(config) + value).distinct())
+                        onShowMessage(context.getString(R.string.domestic_updated))
+                    }
+                }
+            },
+            modifier = Modifier.testTag("domestic-add-dialog"),
+        )
+    }
+
+    if (resetDomestic) {
+        ConfirmDialog(
+            title = stringResource(R.string.domestic_reset_title),
+            description = stringResource(R.string.domestic_reset_desc),
+            confirmText = stringResource(R.string.action_reset),
+            onConfirm = {
+                resetDomestic = false
+                scope.launch { actions.reloadConfig() }
+                onShowMessage(context.getString(R.string.domestic_reset_done))
+            },
+            onDismiss = { resetDomestic = false },
+        )
+    }
+
+    sourceEditor?.let { editor ->
+        RuleSourceEditorDialog(
+            initial = editor.source,
+            onDismiss = { sourceEditor = null },
+            onSave = { source ->
+                sourceEditor = null
+                val nextSources = if (editor.editing && editor.source != null) {
+                    sources.map { if (it.id == source.id) source else it }
+                } else {
+                    sources + source
+                }
+                scope.launch {
+                    actions.updateConfig(config.copy(ruleSources = nextSources))
+                    onShowMessage(context.getString(R.string.source_saved))
+                }
+            },
+        )
+    }
+
+    deleteSourceTarget?.let { source ->
+        ConfirmDialog(
+            title = stringResource(R.string.source_delete_title),
+            description = stringResource(R.string.source_delete_desc, source.name),
+            confirmText = stringResource(R.string.action_delete),
+            onConfirm = {
+                deleteSourceTarget = null
+                scope.launch {
+                    actions.updateConfig(config.copy(ruleSources = sources.filterNot { it.id == source.id }))
+                    onShowMessage(context.getString(R.string.source_deleted))
+                }
+            },
+            onDismiss = { deleteSourceTarget = null },
+        )
+    }
+
+    if (showImport) {
+        RuleImportDialog(
+            onDismiss = { showImport = false },
+            onImport = { text, format, name ->
+                showImport = false
+                if (text.startsWith("http://") || text.startsWith("https://")) {
+                    // URL：先创建规则源，再触发刷新（控制器会拉取并合并）
+                    val newSource = RuleSource(
+                        id = "custom-${System.currentTimeMillis()}",
+                        name = name.ifBlank { text.substringAfterLast('/') },
+                        url = text,
+                        format = RuleSourceFormat.AUTO,
+                    )
+                    scope.launch {
+                        actions.updateConfig(config.copy(ruleSources = sources + newSource))
+                        val summary = actions.refreshRuleSources(true)
+                        onShowMessage(refreshSummaryText(summary))
+                    }
+                } else {
+                    scope.launch {
+                        val summary = actions.importRulesFromText(text, format, name.ifBlank { "本地导入" })
+                        onShowMessage(
+                            "导入完成：拦截 ${summary.addedIntercepts} · 直连 ${summary.addedDirectPassDomains} · 国内 ${summary.addedDomesticDomains}",
+                        )
+                    }
+                }
+            },
+        )
+    }
+}
+
+private data class SourceEditorState(val source: RuleSource?, val editing: Boolean)
+
+/**
+ * 兼容旧调用方（QA 截图测试）：仅按 config 渲染规则页。
+ * 新代码请使用 [RulesScreen] 的 state + actions 重载（0.1.1-alpha）。
+ */
+@Composable
+fun RulesScreen(
+    config: dev.sidebike.core.api.SidebikeConfig,
+    contentPadding: androidx.compose.foundation.layout.PaddingValues,
+    onConfigChange: (dev.sidebike.core.api.SidebikeConfig) -> Unit,
     modifier: Modifier = Modifier,
     onReloadConfig: () -> Unit = {},
 ) {
-    var query by rememberSaveable { mutableStateOf("") }
-    var expandedDomain by rememberSaveable { mutableStateOf<String?>(null) }
-
-    val domains = remember(config.intercepts) {
-        config.intercepts.entries.sortedBy { it.key }
-    }
-    val filtered = remember(domains, query) {
-        val keyword = query.trim()
-        if (keyword.isEmpty()) {
-            domains
-        } else {
-            domains.filter { (domain, actions) ->
-                domain.contains(keyword, ignoreCase = true) ||
-                    actions.entries.any { (path, action) ->
-                        path.contains(keyword, ignoreCase = true) ||
-                            action.sni?.contains(keyword, true) == true ||
-                            action.proxy?.contains(keyword, true) == true ||
-                            action.desc?.contains(keyword, true) == true
-                    }
-            }
-        }
-    }
-    val disabledCount = domains.count { !config.isDomainIntercepted(it.key) }
-    val pathCount = domains.sumOf { it.value.size }
-    val mitmEnabled = config.proxy.mitmEnabled || config.mitm.enabled
-
-    LazyColumn(
-        modifier = modifier
-            .fillMaxSize()
-            .testTag("rules-list"),
-        contentPadding = PaddingValues(
-            start = 16.dp,
-            end = 16.dp,
-            top = contentPadding.calculateTopPadding() + 8.dp,
-            bottom = contentPadding.calculateBottomPadding() + 24.dp,
+    RulesScreen(
+        state = SidebikeUiState(config = config),
+        contentPadding = contentPadding,
+        actions = SidebikeActions(
+            updateConfig = onConfigChange,
+            reloadConfig = onReloadConfig,
         ),
-        verticalArrangement = Arrangement.spacedBy(12.dp),
-    ) {
-        item(key = "search") {
-            OutlinedTextField(
-                value = query,
-                onValueChange = { query = it },
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .testTag("rules-search"),
-                singleLine = true,
-                shape = MaterialTheme.shapes.extraLarge,
-                placeholder = { Text(stringResource(R.string.rules_search_hint)) },
-                leadingIcon = { Icon(Icons.Outlined.Search, contentDescription = null) },
-                trailingIcon = {
-                    AnimatedVisibility(visible = query.isNotEmpty(), enter = m3ExpandIn(), exit = m3ShrinkOut()) {
-                        IconButton(onClick = { query = "" }) {
-                            Icon(
-                                imageVector = Icons.Outlined.Close,
-                                contentDescription = stringResource(R.string.rules_clear_search),
-                            )
-                        }
-                    }
-                },
-            )
-        }
-        item(key = "features") {
-            Card(
-                modifier = Modifier.fillMaxWidth(),
-                shape = MaterialTheme.shapes.large,
-                colors = CardDefaults.cardColors(
-                    containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
-                ),
-            ) {
-                Column {
-                    FeatureRow(
-                        title = stringResource(R.string.rules_feature_proxy),
-                        description = stringResource(R.string.rules_feature_proxy_desc),
-                        checked = config.proxy.enabled,
-                        tag = "feature-switch:proxy",
-                        onCheckedChange = { enabled ->
-                            onConfigChange(config.copy(proxy = config.proxy.copy(enabled = enabled)))
-                        },
-                    )
-                    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
-                    FeatureRow(
-                        title = stringResource(R.string.rules_feature_domestic),
-                        description = stringResource(R.string.rules_feature_domestic_desc),
-                        checked = config.proxy.bypassDomestic,
-                        tag = "feature-switch:domestic",
-                        onCheckedChange = { enabled ->
-                            onConfigChange(config.copy(proxy = config.proxy.copy(bypassDomestic = enabled)))
-                        },
-                    )
-                    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
-                    FeatureRow(
-                        title = stringResource(R.string.rules_feature_mitm),
-                        description = stringResource(R.string.rules_feature_mitm_desc),
-                        checked = mitmEnabled,
-                        tag = "feature-switch:mitm",
-                        onCheckedChange = { enabled ->
-                            onConfigChange(
-                                config.copy(
-                                    proxy = config.proxy.copy(mitmEnabled = enabled),
-                                    mitm = config.mitm.copy(enabled = enabled),
-                                ),
-                            )
-                        },
-                    )
-                }
-            }
-        }
-        item(key = "summary") {
-            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                Text(
-                    text = stringResource(R.string.rules_summary, domains.size, pathCount, disabledCount),
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurface,
-                )
-                Text(
-                    text = stringResource(R.string.rules_disabled_note),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
-        }
-        if (filtered.isEmpty()) {
-            item(key = "empty") {
-                if (domains.isEmpty()) {
-                    EmptyState(
-                        icon = Icons.Outlined.Inbox,
-                        title = stringResource(R.string.rules_empty_title),
-                        description = stringResource(R.string.rules_empty_desc),
-                        action = {
-                            OutlinedButton(onClick = onReloadConfig) {
-                                Text(stringResource(R.string.rules_reload_config))
-                            }
-                        },
-                    )
-                } else {
-                    EmptyState(
-                        icon = Icons.Outlined.Search,
-                        title = stringResource(R.string.rules_no_result_title),
-                        description = stringResource(R.string.rules_no_result_desc),
-                    )
-                }
-            }
-        } else {
-            items(
-                items = filtered,
-                key = { entry -> entry.key },
-            ) { (domain, actions) ->
-                val intercepted = config.isDomainIntercepted(domain)
-                DomainRuleCard(
-                    domain = domain,
-                    actions = actions,
-                    intercepted = intercepted,
-                    expanded = expandedDomain == domain,
-                    onToggleExpanded = {
-                        expandedDomain = if (expandedDomain == domain) null else domain
-                    },
-                    onToggleIntercepted = { nextIntercepted ->
-                        onConfigChange(config.withDomainIntercepted(domain, nextIntercepted))
-                    },
-                    modifier = Modifier.animateItem(
-                        fadeInSpec = M3ListItemFadeInSpec,
-                        placementSpec = M3ListItemPlacementSpec,
-                        fadeOutSpec = M3ListItemFadeOutSpec,
-                    ),
-                )
-            }
-        }
-    }
-}
-
-@Composable
-private fun FeatureRow(
-    title: String,
-    description: String,
-    checked: Boolean,
-    tag: String,
-    onCheckedChange: (Boolean) -> Unit,
-) {
-    ListItem(
-        headlineContent = { Text(title) },
-        supportingContent = { Text(description) },
-        trailingContent = {
-            Switch(
-                checked = checked,
-                onCheckedChange = onCheckedChange,
-                modifier = Modifier.testTag(tag),
-            )
-        },
-        colors = ListItemDefaults.colors(
-            containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
-            headlineColor = MaterialTheme.colorScheme.onSurface,
-            supportingColor = MaterialTheme.colorScheme.onSurfaceVariant,
-        ),
-        modifier = Modifier.clickable { onCheckedChange(!checked) },
+        onShowMessage = {},
+        modifier = modifier,
     )
-}
-
-@Composable
-private fun DomainRuleCard(
-    domain: String,
-    actions: Map<String, InterceptAction>,
-    intercepted: Boolean,
-    expanded: Boolean,
-    onToggleExpanded: () -> Unit,
-    onToggleIntercepted: (Boolean) -> Unit,
-    modifier: Modifier = Modifier,
-) {
-    Card(
-        modifier = modifier
-            .fillMaxWidth()
-            .testTag("rule-card:$domain"),
-        shape = MaterialTheme.shapes.large,
-        colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
-        ),
-    ) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .animateContentSize(
-                    animationSpec = tween(
-                        durationMillis = M3Motion.Medium2,
-                        easing = M3Motion.EmphasizedDecelerate,
-                    ),
-                )
-                .clickable(onClick = onToggleExpanded)
-                .padding(start = 16.dp, end = 8.dp, top = 12.dp, bottom = 12.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Column(modifier = Modifier.weight(1f)) {
-                    Text(
-                        text = domain,
-                        style = MaterialTheme.typography.titleMedium,
-                        color = if (intercepted) {
-                            MaterialTheme.colorScheme.onSurface
-                        } else {
-                            MaterialTheme.colorScheme.onSurfaceVariant
-                        },
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                    Text(
-                        text = stringResource(R.string.rules_rule_count, actions.size),
-                        style = MaterialTheme.typography.labelMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
-                Text(
-                    text = stringResource(R.string.rules_direct_only_short),
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-                Switch(
-                    checked = !intercepted,
-                    onCheckedChange = { direct -> onToggleIntercepted(!direct) },
-                    modifier = Modifier.testTag("rule-switch:$domain"),
-                )
-                val arrowRotation by animateFloatAsState(
-                    targetValue = if (expanded) 180f else 0f,
-                    animationSpec = tween(
-                        durationMillis = M3Motion.Medium2,
-                        easing = M3Motion.EmphasizedDecelerate,
-                    ),
-                    label = "ruleExpandArrow",
-                )
-                Icon(
-                    imageVector = Icons.Outlined.ExpandMore,
-                    contentDescription = null,
-                    modifier = Modifier
-                        .size(20.dp)
-                        .rotate(arrowRotation),
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
-
-            val kinds = remember(actions) { ruleActionKinds(actions) }
-            if (kinds.isNotEmpty()) {
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    kinds.forEach { kind ->
-                        StatusPill(
-                            label = stringResource(ruleActionLabelRes(kind)),
-                            containerColor = actionKindContainerColor(kind),
-                            contentColor = actionKindContentColor(kind),
-                            leadingDot = false,
-                        )
-                    }
-                }
-            }
-
-            AnimatedVisibility(visible = expanded, enter = m3ExpandIn(), exit = m3ShrinkOut()) {
-                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
-                    actions.entries.forEach { (path, action) ->
-                        ActionDetail(path = path, action = action)
-                    }
-                    if (!intercepted) {
-                        Text(
-                            text = stringResource(R.string.rules_disabled_note),
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    }
-                }
-            }
-        }
-    }
-}
-
-@Composable
-private fun ActionDetail(path: String, action: InterceptAction) {
-    Surface(
-        modifier = Modifier.fillMaxWidth(),
-        shape = MaterialTheme.shapes.medium,
-        color = MaterialTheme.colorScheme.surfaceContainerHigh,
-    ) {
-        Column(
-            modifier = Modifier.padding(12.dp),
-            verticalArrangement = Arrangement.spacedBy(4.dp),
-        ) {
-            Text(
-                text = stringResource(R.string.rules_path_label, path),
-                style = MaterialTheme.typography.labelMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-            val details = remember(action) {
-                interceptActionDetails(action)
-            }
-            details.forEach { (label, value) ->
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text(
-                        text = stringResource(detailLabelRes(label)),
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.width(88.dp),
-                    )
-                    Text(
-                        text = value ?: stringResource(R.string.rules_detail_configured),
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurface,
-                        modifier = Modifier.weight(1f),
-                    )
-                }
-            }
-        }
-    }
-}
-
-private fun ruleActionLabelRes(kind: RuleActionKind): Int = when (kind) {
-    RuleActionKind.SNI -> R.string.rules_action_sni
-    RuleActionKind.PROXY -> R.string.rules_action_proxy
-    RuleActionKind.SYNTHETIC -> R.string.rules_action_success
-    RuleActionKind.SCRIPT -> R.string.rules_action_script
-    RuleActionKind.STATUS -> R.string.rules_action_status_short
-    RuleActionKind.CACHE -> R.string.rules_action_cache_short
-}
-
-@Composable
-private fun actionKindContainerColor(kind: RuleActionKind): Color = when (kind) {
-    RuleActionKind.SNI, RuleActionKind.PROXY -> MaterialTheme.colorScheme.secondaryContainer
-    RuleActionKind.SYNTHETIC, RuleActionKind.SCRIPT -> MaterialTheme.colorScheme.tertiaryContainer
-    RuleActionKind.STATUS, RuleActionKind.CACHE -> MaterialTheme.colorScheme.surfaceContainerHighest
-}
-
-@Composable
-private fun actionKindContentColor(kind: RuleActionKind): Color = when (kind) {
-    RuleActionKind.SNI, RuleActionKind.PROXY -> MaterialTheme.colorScheme.onSecondaryContainer
-    RuleActionKind.SYNTHETIC, RuleActionKind.SCRIPT -> MaterialTheme.colorScheme.onTertiaryContainer
-    RuleActionKind.STATUS, RuleActionKind.CACHE -> MaterialTheme.colorScheme.onSurfaceVariant
 }

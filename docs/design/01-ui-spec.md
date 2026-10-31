@@ -20,12 +20,12 @@ MD3 NavigationBar 推荐 3–5 个 destination，本应用正好 5 个（全部�
 | # | 目的地 | 路由 | 图标（selected / unselected） | 内容 |
 | - | --- | --- | --- | --- |
 | 1 | 首页 | `home` | Home / Home | 状态 Hero、启动/停止、实时统计、环境提示、快捷操作、最近日志 |
-| 2 | 规则 | `rules` | Rule / Rule | 搜索、功能开关、域名规则列表（直连放行 Switch + 展开动作详情） |
-| 3 | 日志 | `logs` | Article / Article | 实时日志、级别筛选 chips、自动滚动、清空、导出（FAB） |
-| 4 | 设置 | `settings` | Settings / Settings | 代理端口、DNS 模式/Provider、MITM+CA、通用、外观、关于/许可 |
-| 5 | 证书 | `cert` | VerifiedUser / VerifiedUser | CA 状态 Hero、安装/导出/重新检测、四步指引、能力边界 |
+| 2 | 规则 | `rules` | Rule / Rule | 4 tabs：拦截规则 / 直连放行 / 国内域名 / 规则源（搜索 + 计数 + 编辑/删除/导入） |
+| 3 | 日志 | `logs` | Article / Article | 实时日志、级别筛选 chips、自动滚动、清空、导出 FAB（.log/.zip/复制底表） |
+| 4 | 设置 | `settings` | Settings / Settings | 代理端口/超时预设、DNS 模式/Provider/hosts/详情、MITM+CA、网络诊断、通用、外观、关于/许可 |
+| 5 | 证书 | `cert` | VerifiedUser / VerifiedUser | CA 三态 Hero、MD3 安装确认 Dialog、指纹、SAF 导出、手动安装步骤、能力边界 |
 
-- 顶层切换使用 MD3 **fade-through**（`AnimatedContent`，见 motion spec）。
+- 顶层切换使用 MD3 **顺序版 fade-through**（`m3FadeThroughSequential`：旧页面先淡出、新页面延迟进入，见 motion spec N1；0.1.1-alpha 修复新旧页面重叠）。
 - 非首页目的地按返回键回到首页（`BackHandler` + `rememberSaveable` 保存路由）。
 - 首页使用 `LargeTopAppBar` + `exitUntilCollapsedScrollBehavior`（顶栏折叠）；其余目的地使用 `TopAppBar`。
 - `Scaffold` 统一管理 topBar / NavigationBar / SnackbarHost / FAB / insets，内容通过 `innerPadding` 让列表内容滚动到栏下方（edge-to-edge）。
@@ -183,3 +183,60 @@ MD3 NavigationBar 推荐 3–5 个 destination，本应用正好 5 个（全部�
 5. `ScreenPreviews.kt` 覆盖 5 屏 + 根壳，`@Preview` ≥ 10 且含 `UI_MODE_NIGHT_YES`（浅色+深色）。
 6. `Theme.kt` 使用 MD3 typography + shape token + light/dark + dynamic color。
 7. `docs/design/03-motion-spec.md` 存在且含 easing/duration token（事件→动画表）。
+
+## 10. 0.1.1-alpha 变更（用户反馈 10 项）
+
+### 10.1 规则页（items 4/5/6/7）
+- 结构：`PrimaryTabRow` 4 个 tab（拦截规则 / 直连放行 / 国内域名 / 规则源），共享顶部搜索与计数
+  （`rules_tab_summary`：拦截路径数 / 直连数 / 国内数 / 规则源数）。
+- 行布局统一 MD3 间距：域名+路径数（weight 列）→「直连放行」label → `Switch` → 展开 `IconButton`；
+  卡片用 `Card(onClick = …)`，ripple 由 Card 在 `MaterialTheme.shapes.large` 内裁剪（覆盖整卡，无球形/越界 ripple）。
+- 展开/收起：只保留 `Modifier.animateContentSize(M3RuleExpandSpec)` 一种高度动画；兄弟卡片位移使用
+  `M3RulePlacementSpec`（同为 Medium2 + EmphasizedDecelerate）→ 无跳变/重叠。
+- 拦截规则：添加/编辑/删除（`controller.saveRule/deleteRule`）；动作 SNI 伪装 / 镜像目标 / 拦截(abort，走
+  `updateConfig` 合并 `InterceptAction(abort=true)`，因冻结契约 `RuleDraft` 无 abort 字段)；直连放行 Switch
+  通过 `controller.setDirectPassDomains`。
+- 直连放行 tab：列表 + 添加 + 删除（`setDirectPassDomains`），空态引导。
+- 国内域名 tab：搜索/添加/删除/「恢复默认」（`setDomesticAllowList`；恢复默认走 `reloadConfig()` 重新加载内置
+  列表），说明"内置约 N 个域名，编辑后覆盖内置默认列表"。
+- 规则源 tab：推荐预设（Johnshall/Shadowrocket-ADBlock-Rules-Forever，CC BY-SA 4.0，运行期拉取、不随 APK
+  分发）、自定义源、从文本/URL 导入、立即刷新/全部刷新、启停/编辑/删除；展示 format/autoUpdate/interval/
+  lastUpdated/lastError/lastImported 与 `state.ruleSourcesBusy` 进度。
+- 导入说明：`PROXY`/复杂规则类型会被跳过（仅导入 `DIRECT`→直连放行、`REJECT`→拦截 abort）。
+
+### 10.2 导航（item 8）
+- 目的地切换改为顺序版 fade-through（`m3FadeThroughSequential`）：outgoing `fadeOut Short2/EmphasizedAccelerate`
+  先完成，incoming 延迟 `Short2` 后 `fadeIn + scaleIn(0.94→1) Medium1/EmphasizedDecelerate`，杜绝新旧页面同时可见。
+
+### 10.3 首页（item 9）
+- 启动/停止 busy 阶段全页只保留 **1 个**进度指示器（`RunControlButton` 内联 spinner），Hero 不再有额外 spinner/
+  线性进度条；按钮禁用 + 文案「启动中…/停止中…」提供反馈。
+- 移除「加速时长」显示（Hero headline 不再拼接 uptime；统计区不再显示已运行时间），保留状态 chip + 能力行。
+
+### 10.4 CA 证书页（item 3）
+- 「生成并安装证书」→ 标准 MD3 `AlertDialog`（默认 scrim）说明：需锁屏密码、选择「CA 证书」、系统会提示
+  数据可能被监控；确认后 `controller.prepareCaInstall()` → 启动 `CaInstallRequest.intent`；
+  失败时回退 `settingsFallbackIntent` 并提示。
+- 三态文案：已安装 / 未安装 / **需重新检测**（已尝试安装但当前检测不到，说明"可能已取消安装"）；
+  展示 SHA-256 指纹 + subject（可复制）。
+- 「导出证书到文件」：SAF `CreateDocument(application/x-pem-file)`，文件名 `dev-sidebike-yyyyMMdd-HHmmss.pem`。
+- 手动安装步骤卡片 + 「打开证书设置」兜底入口。
+- 通知权限（Android 13+）：`MainActivity` 调用 `NotificationPermission.ensureRequested(this)`；
+  被拒绝时首页显示「通知权限未授予」横幅 + 重试按钮。
+
+### 10.5 日志导出（item 1）
+- FAB 打开 MD3 `ModalBottomSheet`（不再是大段只读文本）：
+  1) 导出日志文件 `.log`（`controller.buildLogText()` + SAF text/plain）
+  2) 导出诊断包 `.zip`（`controller.buildDebugBundle()` + SAF application/zip）
+  3) 复制日志文本到剪贴板（兜底）
+- 文件名 `dev-sidebike-yyyyMMdd-HHmmss.<ext>`；成功/失败/取消都有 Snackbar。
+
+### 10.6 设置新增（item 6 附带 / G 项）
+- 网络诊断：`controller.runNetworkDiagnostics()`（`state.diagnosticsRunning` 显示进度），结果 MD3 Dialog
+  可复制/保存到文件（SAF text/plain）。
+- 本地 hosts 编辑：`state.config.dns.hosts` 行删除 + 添加 Dialog（域名/IP 轻量校验）。
+- DNS 详情：只读 Dialog 展示 Provider 数量、mapping/familyMapping/preSetIp 统计与 mapping 列表。
+- 超时三档预设（默认 12s/30s/60s、快速 6s/15s/30s、稳健 20s/60s/120s）→ `config.proxy.*TimeoutMs`。
+- MITM 卡片说明"仅对命中拦截规则的域名生效；CA 未安装时开关会被拒绝并提示"。
+- 链接：规则管理（含规则源，跳转 Rules 规则源 tab）与运行日志/导出。
+- 关于页新增规则源致谢：Johnshall/Shadowrocket-ADBlock-Rules-Forever（CC BY-SA 4.0，运行期拉取，不随 APK 分发）。

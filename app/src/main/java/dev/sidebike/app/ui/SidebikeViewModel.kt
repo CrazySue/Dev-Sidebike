@@ -2,10 +2,16 @@ package dev.sidebike.app.ui
 
 import android.app.Application
 import androidx.lifecycle.AndroidViewModel
+import dev.sidebike.app.controller.CaInstallRequest
+import dev.sidebike.app.controller.MitmToggleResult
+import dev.sidebike.app.controller.RuleDraft
+import dev.sidebike.app.controller.RuleImportSummary
+import dev.sidebike.app.controller.RuleSourceRefreshSummary
 import dev.sidebike.app.controller.SidebikeController
 import dev.sidebike.app.controller.SidebikeControllerHolder
 import dev.sidebike.app.state.SidebikeUiState
 import dev.sidebike.core.api.LogEntry
+import dev.sidebike.core.api.RuleSourceFormat
 import dev.sidebike.core.api.SidebikeConfig
 import kotlinx.coroutines.flow.StateFlow
 
@@ -40,4 +46,33 @@ class SidebikeViewModel(application: Application) : AndroidViewModel(application
     fun refreshCaInstalled() = controller.refreshCaInstalled()
 
     suspend fun exportDiagnostics(): String = controller.exportDiagnostics()
+
+    // ---------------------------------------------------------------- 0.1.1-alpha
+    suspend fun buildLogText(): String = controller.buildLogText()
+
+    suspend fun buildDebugBundle(): ByteArray = controller.buildDebugBundle()
+
+    suspend fun runNetworkDiagnostics(): String = controller.runNetworkDiagnostics()
+
+    suspend fun prepareCaInstall(): CaInstallRequest? = controller.prepareCaInstall()
+
+    suspend fun setMitmEnabled(enabled: Boolean): MitmToggleResult = controller.setMitmEnabled(enabled)
+
+    suspend fun saveRule(draft: RuleDraft) = controller.saveRule(draft)
+
+    suspend fun deleteRule(domainPattern: String, pathRegex: String) =
+        controller.deleteRule(domainPattern, pathRegex)
+
+    suspend fun setDirectPassDomains(domains: List<String>) = controller.setDirectPassDomains(domains)
+
+    suspend fun setDomesticAllowList(domains: List<String>) = controller.setDomesticAllowList(domains)
+
+    suspend fun importRulesFromText(
+        text: String,
+        format: RuleSourceFormat,
+        sourceName: String = "本地导入",
+    ): RuleImportSummary = controller.importRulesFromText(text, format, sourceName)
+
+    suspend fun refreshRuleSources(force: Boolean = false): RuleSourceRefreshSummary =
+        controller.refreshRuleSources(force)
 }

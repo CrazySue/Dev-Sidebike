@@ -80,4 +80,40 @@ class SidebikeViewModelTest {
         viewModel.refreshCaInstalled()
         assertEquals(1, fake.refreshCaCalls)
     }
+
+    @Test
+    fun alphaForwardersDelegateToController() = runBlocking {
+        assertEquals(fake.logText, viewModel.buildLogText())
+        assertEquals(1, fake.buildLogTextCalls)
+
+        assertTrue(viewModel.buildDebugBundle().contentEquals(fake.debugBundle))
+        assertEquals(1, fake.buildDebugBundleCalls)
+
+        assertEquals(fake.diagnosticsReport, viewModel.runNetworkDiagnostics())
+        assertEquals(1, fake.diagnosticsCalls)
+
+        viewModel.prepareCaInstall()
+        assertEquals(1, fake.prepareCaInstallCalls)
+
+        assertTrue(viewModel.setMitmEnabled(true).effective)
+        assertEquals(1, fake.setMitmEnabledCalls)
+
+        viewModel.saveRule(dev.sidebike.app.controller.RuleDraft(domainPattern = "a.com"))
+        assertEquals(1, fake.saveRuleCalls)
+
+        viewModel.deleteRule("a.com", ".*")
+        assertEquals("a.com" to ".*", fake.lastDeletedRule)
+
+        viewModel.setDirectPassDomains(listOf("d.com"))
+        assertEquals(listOf("d.com"), fake.lastDirectPassDomains)
+
+        viewModel.setDomesticAllowList(listOf("cn.com"))
+        assertEquals(listOf("cn.com"), fake.lastDomesticAllowList)
+
+        viewModel.importRulesFromText("DOMAIN,x.com", dev.sidebike.core.api.RuleSourceFormat.AUTO)
+        assertEquals(1, fake.importRulesCalls)
+
+        viewModel.refreshRuleSources(force = true)
+        assertEquals(1, fake.refreshRuleSourcesCalls)
+    }
 }

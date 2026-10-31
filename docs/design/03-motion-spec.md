@@ -43,6 +43,9 @@
 | `M3ListItemFadeInSpec` | tween(Medium1, EmphasizedDecelerate) | Lazy 列表项淡入 |
 | `M3ListItemPlacementSpec` | tween(Medium2, Standard) | Lazy 列表项位置动画 |
 | `M3ListItemFadeOutSpec` | tween(Short2, EmphasizedAccelerate) | Lazy 列表项淡出 |
+| `M3RuleExpandSpec` | tween(Medium2, EmphasizedDecelerate) | 规则卡片展开/收起内容高度 |
+| `M3RulePlacementSpec` | tween(Medium2, EmphasizedDecelerate) | 规则列表项位移（与展开同 token，0.1.1-alpha 修复抖动） |
+| `m3FadeThroughSequential()` | outgoing fadeOut(Short2/EmphasizedAccelerate) → incoming fadeIn+scaleIn(0.94→1, Medium1/EmphasizedDecelerate, delay=Short2) | 顶级目的地切换（0.1.1-alpha 修复新旧页面重叠） |
 | `m3StaggerDelayMillis(index)` | index × Short1 | 列表错峰入场 |
 
 ## 3. 事件 → 动画 → easing → duration 映射表（验收核心）
@@ -53,12 +56,12 @@
 | - | --- | --- | --- | --- |
 | H1 | RunStatus 变化 → Hero 容器/内容/强调色 | `Surface` + `animateColorAsState` | `Standard` | `Medium2` (300ms) |
 | H2 | RunStatus 变化 → Hero 圆角 shape morph（16dp ↔ 28dp） | `RoundedCornerShape(animateDpAsState)` | `EmphasizedDecelerate` | `Medium2` |
-| H3 | RunStatus 变化 → Hero headline/subtitle 内容（headline 带运行时长，subtitle 为能力行） | `AnimatedContent`（fade-through） | enter `EmphasizedDecelerate` / exit `EmphasizedAccelerate` | `Medium1` (250) / `Short2` (100) |
+| H3 | RunStatus 变化 → Hero headline/subtitle 内容（0.1.1-alpha 起**不再显示加速时长**，只有状态语义 + 能力行） | `AnimatedContent`（fade-through） | enter `EmphasizedDecelerate` / exit `EmphasizedAccelerate` | `Medium1` (250) / `Short2` (100) |
 | H4 | Android 13+ 通知权限被拒绝 → 首页提示横幅 | `AnimatedVisibility` + `InfoBanner`（含「允许通知」重试动作） | enter `EmphasizedDecelerate` / exit `EmphasizedAccelerate` | `Medium2` / `Short4` |
 | H5 | RUNNING / 进行中 → 状态点呼吸 | `rememberInfiniteTransition` + `animateFloat`（alpha 1→0.25，Reverse） | `StandardDecelerate` | `ExtraLong1` (700) |
-| H6 | 进入 busy（PREPARING/STARTING/STOPPING）→ 线性进度条出现 | `AnimatedVisibility` + `LinearProgressIndicator` | `EmphasizedDecelerate`（expand） | `Medium2` |
-| H7 | 离开 busy → 进度条消失 | `AnimatedVisibility` shrink | `EmphasizedAccelerate` | `Short4` (200) |
-| H8 | busy 时顶行显示 CircularProgressIndicator | MD3 `CircularProgressIndicator`（MD3 内建 indeterminate 动画） | 组件内建 | 连续 |
+| H6 | 进入 busy（PREPARING/STARTING/STOPPING）→ **仅 1 个**进度指示器（RunControlButton 内联 spinner），Hero 内不再有额外 spinner/线性进度条 | `AnimatedContent` + MD3 `CircularProgressIndicator` | 组件内建 / `EmphasizedDecelerate` | 组件内建 / `Medium2` |
+| H7 | 离开 busy → 进度指示器随按钮 morph 消失 | `AnimatedContent`（fade-through + resize） | `EmphasizedAccelerate` | `Short2` |
+| H8 | busy 时按钮禁用与文案（启动中…/停止中…）切换 | `AnimatedContent` | `EmphasizedDecelerate` / `EmphasizedAccelerate` | `Medium1` / `Short2` |
 | H9 | 错误出现/消失（lastError） | `AnimatedVisibility` + `InfoBanner` | enter `EmphasizedDecelerate` / exit `EmphasizedAccelerate` | `Medium2` / `Short4` |
 | H10 | CA/MITM 状态文案变化（MITM 未启用 → 需要安装 CA → 证书已就绪） | 文案由 `mitmCaStatusOf()` 状态映射驱动；Hero 内容色随 `animateColorAsState` 过渡 | `Standard` | `Medium2` |
 | H11 | 环境提示出现（Private DNS / lockdown / 系统代理未生效 / 端口回退） | `AnimatedVisibility` + `InfoBanner` | enter `EmphasizedDecelerate` / exit `EmphasizedAccelerate` | `Medium2` / `Short4` |
@@ -74,12 +77,12 @@
 
 | # | 触发事件 | 动画组件 | Easing token | Duration token |
 | - | --- | --- | --- | --- |
-| N1 | 切换 NavigationBar destination | `AnimatedContent`（fade-through：incoming scale 0.92→1、outgoing 1→1.08） | enter `EmphasizedDecelerate` / exit `EmphasizedAccelerate` | `Medium1` / `Short2` |
+| N1 | 切换 NavigationBar destination（0.1.1-alpha item 8） | `AnimatedContent` + `m3FadeThroughSequential()`：outgoing 先完全淡出（Short2），incoming 延迟 Short2 后 fadeIn+scaleIn(0.94→1)，无重叠、无缩放错位 | exit `EmphasizedAccelerate` / enter `EmphasizedDecelerate` | `Short2` / `Medium1`（incoming delay Short2） |
 | N2 | NavigationBar 选中项变化 | MD3 `NavigationBarItem` 内建 indicator 动画 | 组件内建 MD3 token | 组件内建 |
 | N3 | 首页滚动 → LargeTopAppBar 折叠/展开 | `exitUntilCollapsedScrollBehavior(snapAnimationSpec=…)` | `EmphasizedDecelerate`（fling 用 MD3 spline 物理衰减） | `Medium1` (snap) |
 | N4 | 进入/离开日志页 → 导出 FAB 出现/消失 | `AnimatedVisibility` + `ExtendedFloatingActionButton` | enter `EmphasizedDecelerate` / exit `EmphasizedAccelerate` | `Medium1` / `Short2` |
 | N5 | Snackbar 显示/消失（清空、复制、CA 错误） | MD3 `SnackbarHost` 内建动画 | 组件内建 MD3 token | 组件内建 |
-| N6 | 导出诊断 ModalBottomSheet 打开/关闭 | MD3 `ModalBottomSheet` 内建 slide-in/out | 组件内建 MD3 token | 组件内建 |
+| N6 | 导出日志 ModalBottomSheet 打开/关闭（0.1.1-alpha：.log/.zip/复制） | MD3 `ModalBottomSheet` 内建 slide-in/out | 组件内建 MD3 token | 组件内建 |
 | N7 | 端口编辑/关于/许可 AlertDialog 打开/关闭 | MD3 `AlertDialog` 内建 fade+scale | 组件内建 MD3 token | 组件内建 |
 | N8 | 返回键回到首页 | 同 N1（fade-through） | 见 N1 | 见 N1 |
 | N9 | 主题模式/动态取色切换 | `MaterialTheme` colorScheme 热替换；使用 `animateColorAsState` 的组件平滑过渡（Hero/按钮/开关行），其余按 MD3 组件默认重绘 | `Standard`（显式动画组件） | `Medium2` |
@@ -90,12 +93,14 @@
 | - | --- | --- | --- | --- |
 | R1 | 搜索框清空图标出现/消失 | `AnimatedVisibility` | enter `EmphasizedDecelerate` / exit `EmphasizedAccelerate` | `Medium2` / `Short4` |
 | R2 | 搜索过滤导致列表项增删/位移 | LazyColumn `Modifier.animateItem(fadeIn/placement/fadeOut)` | fadeIn `EmphasizedDecelerate`；placement `Standard`；fadeOut `EmphasizedAccelerate` | `Medium1` / `Medium2` / `Short2` |
-| R3 | 展开/收起域名动作详情 | `Modifier.animateContentSize` + `AnimatedVisibility` | `EmphasizedDecelerate`（展开）/ `EmphasizedAccelerate`（收起） | `Medium2` / `Short4` |
+| R3 | 展开/收起域名动作详情（0.1.1-alpha 修复） | `Modifier.animateContentSize(M3RuleExpandSpec)` **仅此一种**高度动画（不再叠加 AnimatedVisibility）；兄弟卡片 `animateItem(placementSpec = M3RulePlacementSpec)` 同 token，无跳变/重叠 | `EmphasizedDecelerate`（展开/收起与位移一致） | `Medium2` |
 | R4 | 展开箭头旋转 0°→180° | `animateFloatAsState` + `Modifier.rotate` | `EmphasizedDecelerate` | `Medium2` |
-| R5 | 直连放行 Switch 切换 | MD3 `Switch` 内建动画 + 持久化后列表项重排（R2） | 组件内建 / `Standard`（placement） | 组件内建 / `Medium2` |
-| R6 | 功能开关（代理规则/MITM/国内直连）切换 | MD3 `Switch` 内建动画 | 组件内建 MD3 token | 组件内建 |
+| R5 | 直连放行 Switch 切换 | MD3 `Switch` 内建动画 + `controller.setDirectPassDomains` 回推后列表项重排（R2） | 组件内建 / `EmphasizedDecelerate`（placement） | 组件内建 / `Medium2` |
+| R6 | 4 个 tab 切换（拦截规则/直连放行/国内域名/规则源） | `PrimaryTabRow` 内建 indicator + `AnimatedContent` fade-through | 组件内建 / `EmphasizedDecelerate` / `EmphasizedAccelerate` | 组件内建 / `Medium1` / `Short2` |
 | R7 | 空结果 / 空配置状态出现 | 列表项替换（R2 fade）+ `EmptyState`（空配置时提供「重新加载配置」动作） | 同 R2 | 同 R2 |
-| R8 | 动作类型 chips（SNI/镜像/合成…）随数据出现 | 随卡片展开（R3） | 同 R3 | 同 R3 |
+| R8 | 动作类型 chips（SNI/镜像/合成/abort…）随数据出现 | 随卡片展开（R3） | 同 R3 | 同 R3 |
+| R9 | 添加/编辑规则、删除确认、直连/国内域名新增、规则源编辑、文本导入 | MD3 `AlertDialog` 内建 fade+scale（默认 scrim）；保存成功后列表项 animateItem 增删 | 组件内建 / `EmphasizedDecelerate` | 组件内建 / `Medium1` |
+| R10 | 规则源刷新中（state.ruleSourcesBusy） | `LinearProgressIndicator`（测试模式用确定值，避免无限动画挂起）+ 文案 | 组件内建 | 持续 |
 
 ### 3.4 日志页（Logs）
 
@@ -118,18 +123,34 @@
 | S3 | 任意 Switch（系统代理/国内直连/DNS 接管/MITM/自启动/动态取色/Provider） | MD3 `Switch` 内建动画；开关行容器色 `animateColorAsState` | `Standard`（行颜色） | `Medium2` |
 | S4 | 修改代理端口（点行 → Dialog → 保存） | MD3 `AlertDialog` 内建进入/退出动画；保存后数值重绘 | 组件内建 | 组件内建 |
 | S5 | 打开关于 / 开源许可 Dialog | MD3 `AlertDialog` 内建动画 | 组件内建 | 组件内建 |
-| S6 | MITM 开关 → 证书状态文案变化（MITM 未启用 / 需要安装 CA / 已安装并信任） | 状态映射 `mitmCaStatusOf()`；开关行/卡片颜色使用 `animateColorAsState` | `Standard` | `Medium2` |
+| S6 | MITM 开关 → 证书状态文案变化（MITM 未启用 / 需要安装 CA / 已安装并信任）；CA 未安装时 `controller.setMitmEnabled` 拒绝并弹 Snackbar | 状态映射 `mitmCaStatusOf()`；开关行/卡片颜色使用 `animateColorAsState` | `Standard` | `Medium2` |
 | S7 | Provider 列表项开关 | MD3 `Switch` 内建动画 | 组件内建 | 组件内建 |
+| S8 | 超时预设 SegmentedButton（默认/快速/稳健） | MD3 `SegmentedButton` 内建动画；保存后显示当前档位说明 | 组件内建 | 组件内建 |
+| S9 | DNS hosts 添加/移除（Dialog + 行删除） | MD3 `AlertDialog` 内建动画；行删除后列表重组 | 组件内建 | 组件内建 |
+| S10 | 网络诊断运行中 / 结果 Dialog（state.diagnosticsRunning） | 列表中 spinner（测试模式确定值）+ MD3 `AlertDialog` 展示报告 | 组件内建 | 组件内建 |
+| S11 | DNS 详情只读 Dialog（Provider/mapping/familyMapping/preSetIp 统计） | MD3 `AlertDialog` 内建动画 | 组件内建 | 组件内建 |
+| S12 | 设置页跳转「规则管理（含规则源）」/「运行日志与导出」 | 顺序版 fade-through（N1） | 见 N1 | 见 N1 |
 
-### 3.6 证书指南（CertGuide）
+### 3.6 证书指南（CertGuide，0.1.1-alpha 重做）
 
 | # | 触发事件 | 动画组件 | Easing token | Duration token |
 | - | --- | --- | --- | --- |
-| C1 | CA 状态变化 → Hero 容器/内容色 | `animateColorAsState` | `Standard` | `Medium2` |
-| C2 | CA 状态变化 → 「已安装/未安装/尚未生成」文案 | `AnimatedContent`（fade-through） | enter `EmphasizedDecelerate` / exit `EmphasizedAccelerate` | `Medium1` / `Short2` |
-| C3 | 页面首次进入 → 4 个步骤卡片错峰入场（fade+slide 1/8） | `AnimatedVisibility(MutableTransitionState)`，delay = index × `Short1` | `EmphasizedDecelerate` | `Medium2` + 0/50/100/150ms delay |
-| C4 | MITM 未开启 → 提示横幅出现/消失 | `AnimatedVisibility` + `InfoBanner` | enter `EmphasizedDecelerate` / exit `EmphasizedAccelerate` | `Medium2` / `Short4` |
-| C5 | 安装/导出/重新检测按钮点击 | MD3 `Button` 内建 ripple + press 状态；异步结果以 Snackbar 反馈（N5） | 组件内建 | 组件内建 |
+| C1 | CA 三态变化（已安装/未安装/需重新检测）→ Hero 容器/内容色 | `animateColorAsState` | `Standard` | `Medium2` |
+| C2 | CA 三态变化 → 状态文案 | `AnimatedContent`（fade-through） | enter `EmphasizedDecelerate` / exit `EmphasizedAccelerate` | `Medium1` / `Short2` |
+| C3 | 点「生成并安装证书」→ 标准 MD3 AlertDialog（默认 scrim，含锁屏密码提示/指纹） | MD3 `AlertDialog` 内建 fade+scale | 组件内建 | 组件内建 |
+| C4 | 确认安装 → `controller.prepareCaInstall()` → 启动系统安装 Intent（失败回退证书设置页） | 按钮 ripple + Snackbar（N5）；状态转「需重新检测」走 C2 | 组件内建 | 组件内建 |
+| C5 | 已尝试安装但仍检测不到 CA → 取消提示横幅「已取消安装…」出现 | `AnimatedVisibility` + `InfoBanner` | enter `EmphasizedDecelerate` / exit `EmphasizedAccelerate` | `Medium2` / `Short4` |
+| C6 | 指纹加载中 → spinner；加载完成展示 SHA-256 + subject | `LaunchedEffect` + CircularProgressIndicator（测试确定值）；无位移动画 | 组件内建 | 组件内建 |
+| C7 | 「导出证书到文件」→ SAF CreateDocument（application/x-pem-file）；保存成功/取消 Snackbar | 系统文件选择器 + `SnackbarHost` 内建动画 | 组件内建 | 组件内建 |
+
+### 3.7 日志导出（Logs Export，0.1.1-alpha）
+
+| # | 触发事件 | 动画组件 | Easing token | Duration token |
+| - | --- | --- | --- | --- |
+| E1 | 点击日志页 FAB → 导出底表（.log / .zip / 复制） | MD3 `ModalBottomSheet` 内建 slide-in；每行 `ListItem` ripple | 组件内建 | 组件内建 |
+| E2 | 选择「导出日志文件」→ `controller.buildLogText()` → SAF `CreateDocument(text/plain)` | 系统文件选择器；成功/失败/取消 Snackbar（N5） | 组件内建 | 组件内建 |
+| E3 | 选择「导出诊断包」→ `controller.buildDebugBundle()`（ZIP）→ SAF `CreateDocument(application/zip)` | 同上；文件名 `dev-sidebike-yyyyMMdd-HHmmss.zip` | 组件内建 | 组件内建 |
+| E4 | 选择「复制日志文本」→ 剪贴板 + Snackbar | Snackbar（N5） | 组件内建 | 组件内建 |
 
 ## 4. 强制约束（QA 静态审计）
 
@@ -171,12 +192,15 @@ powershell -NoProfile -File E:\WorkSpace\Dev-Sidebike\_script\gradle.ps1 :app:te
    - Home Hero 状态呼吸点（`rememberInfiniteTransition`）；
    - 不确定进度指示器（Hero/RunControlButton 的 `CircularProgressIndicator`/`LinearProgressIndicator`，测试时改用确定值进度）。
    **有限时长动画（本 spec 表中的所有 MD3 token 动画）仍全部开启并参与断言。**
-2. `OutlinedTextField` 聚焦后的 IME/光标闪烁同样是无限动画：Settings 代理端口 Dialog 在
-   `LocalInfiniteAnimationsEnabled = false` 时渲染只读端口文本（testTag 保持 `port-input`），
-   输入过滤/校验由纯函数 `normalizeProxyPortInput()` / `isValidProxyPort()` 的单测覆盖（`PortValidationTest`）。
+2. `OutlinedTextField` 聚焦后的 IME/光标闪烁同样是无限动画：统一 `ui/components/AppTextField.kt`
+   在 `LocalInfiniteAnimationsEnabled = false` 时设置 `readOnly = true`（光标不闪烁，仍可用 semantics
+   驱动输入）。Settings 代理端口 Dialog 在测试模式渲染只读端口文本；输入过滤/校验由纯函数
+   `normalizeProxyPortInput()` / `isValidProxyPort()` 的单测覆盖（`PortValidationTest`）。
 3. 导航/交互定位统一用 testTag，避免文案歧义（快捷操作文案与 NavigationBar label 重叠）：
-   `nav:<route>`、`logs-export-fab`、`rules-list`、`settings-list`、`home-list`、`rule-switch:<domain>` 等。
+   `nav:<route>`、`logs-export-fab`、`rules-tab:<n>`、`rules-list`、`direct-pass-list`、`domestic-list`、
+   `sources-list`、`settings-list`、`home-list`、`rule-switch:<domain>`、`cert-install-button`、
+   `export-log-file` 等。
 4. 测试时钟保持 `autoAdvance = true`（`waitForIdle` 自动推进有限动画），不依赖手动 `advanceTimeBy`。
-5. 稳定性验证命令（102 个 UI 测试全绿）：
+5. 稳定性验证命令（0.1.1-alpha：UI 测试集合，需全绿）：
    `powershell -NoProfile -File _script\gradle.ps1 :app:testDebugUnitTest --tests "dev.sidebike.app.ui.*"`
 

@@ -158,6 +158,51 @@ fun m3FadeThroughOut(
 fun m3FadeThrough(): ContentTransform = m3FadeThroughIn() togetherWith m3FadeThroughOut()
 
 /**
+ * 顺序版 fade-through（用于**顶级目的地切换**，0.1.1-alpha 修复 item 8）：
+ * outgoing 先用 Short2/EmphasizedAccelerate 完全淡出，incoming 延迟 Short2 后再用
+ * Medium1/EmphasizedDecelerate 淡入 + 从 92% 缩放。两段首尾相接、无重叠：
+ * 旧页面不会与新页面同时可见，也不会出现缩放比例不匹配的错位。
+ */
+fun m3FadeThroughSequential(): ContentTransform {
+    val outSpec = tween<Float>(
+        durationMillis = M3Motion.Short2,
+        easing = M3Motion.EmphasizedAccelerate,
+    )
+    val inSpec = tween<Float>(
+        durationMillis = M3Motion.Medium1,
+        delayMillis = M3Motion.Short2,
+        easing = M3Motion.EmphasizedDecelerate,
+    )
+    val enter = fadeIn(inSpec) + scaleIn(
+        animationSpec = inSpec,
+        initialScale = 0.94f,
+    )
+    // 退出只淡出、不缩放：避免 outgoing 放大 1.08 时与 incoming 92% 同时出现的视觉错位。
+    val exit = fadeOut(outSpec)
+    return ContentTransform(
+        targetContentEnter = enter,
+        initialContentExit = exit,
+        targetContentZIndex = 0f,
+        sizeTransform = null,
+    )
+}
+
+/**
+ * 规则卡片展开/收起与相邻列表项位移共享的规格（0.1.1-alpha item 4/5）：
+ * 同一 duration/easing，展开时兄弟卡片重排与内容高度增长同步，无跳变/重叠。
+ */
+val M3RuleExpandSpec: FiniteAnimationSpec<Float> = tween(
+    durationMillis = M3Motion.Medium2,
+    easing = M3Motion.EmphasizedDecelerate,
+)
+
+/** 规则列表项位置动画（与 [M3RuleExpandSpec] 同 token）。 */
+val M3RulePlacementSpec: FiniteAnimationSpec<androidx.compose.ui.unit.IntOffset> = tween(
+    durationMillis = M3Motion.Medium2,
+    easing = M3Motion.EmphasizedDecelerate,
+)
+
+/**
  * MD3 fade-through with an animated size change between the two states (EmphasizedDecelerate,
  * Medium2). Used where the outgoing and incoming content have different intrinsic sizes
  * (e.g. the start/stop control morphing).
