@@ -1,0 +1,8 @@
+﻿=== QA FLOW SUMMARY: smoke (20261031-105326) ===
+  [PASS] env - launch app t24
+  [FAIL] smoke-首页 - screen 首页 renders text=启动服务 seen=False
+  [FAIL] smoke-规则 - screen 规则 renders text=规则 seen=False
+  [FAIL] smoke-日志 - screen 日志 renders text=日志 seen=False
+  [FAIL] smoke-设置 - screen 设置 renders text=设置 seen=False
+  [FAIL] smoke-证书 - screen 证书 renders text=证书 seen=False
+RESULT: PASS=1 FAIL=5 BLOCKED=0 SKIP=0

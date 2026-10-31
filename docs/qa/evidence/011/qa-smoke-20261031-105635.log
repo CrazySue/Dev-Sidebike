@@ -1,0 +1,3 @@
+﻿=== QA FLOW SUMMARY: smoke (20261031-105635) ===
+  [FAIL] env - launch app t28
+RESULT: PASS=0 FAIL=1 BLOCKED=0 SKIP=0

@@ -1,0 +1,8 @@
+﻿=== QA FLOW SUMMARY: smoke (20261031-105817) ===
+  [PASS] env - launch app dev.sidebike.app.debug/dev.sidebike.app.MainActivity
+  [PASS] smoke-首页 - screen 首页 renders text=启动服务 seen=True
+  [PASS] smoke-规则 - screen 规则 renders text=规则 seen=True
+  [PASS] smoke-日志 - screen 日志 renders text=日志 seen=True
+  [PASS] smoke-设置 - screen 设置 renders text=设置 seen=True
+  [PASS] smoke-证书 - screen 证书 renders text=证书 seen=True
+RESULT: PASS=6 FAIL=0 BLOCKED=0 SKIP=0

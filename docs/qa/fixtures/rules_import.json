@@ -1,0 +1,7 @@
+{
+  "intercepts": {
+    "qa-text-import.example.com": { "/": { "proxy": "mirror.qa.example:443", "desc": "text import fixture" } }
+  },
+  "whiteList": { "qa-text-direct.example.com": true },
+  "domesticAllowList": ["qa-text-cn.example.cn"]
+}

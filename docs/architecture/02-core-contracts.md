@@ -35,3 +35,7 @@
 - 2026-10-25：tun DNS wire 应答器约定——**永不置 TC**（不处理 TCP:53），按客户端 EDNS0 UDP buffer（默认 512B）裁剪答案、回显 question、计数一致。
 - 2026-10-25：代理启动顺序由 `:app` 保证（先起代理并自检可连接 → establish VPN → setHttpProxy）；`:core` 只保证 `ProxyServer.start()` 返回后端口可连接。
 - 2026-10-25：`SidebikeUiState` 新增 `systemProxyRegistered` / `privateDnsActive` / `lockdownDetected` / `effectiveProxyPort`（app 层状态契约，UI 必须展示相应告警）。
+- 2026-10-31（0.1.1-alpha）：新增规则管理契约 —— `RuleSource` / `RuleSourceFormat`（AUTO/SIDEBIKE_JSON/SHADOWROCKET_LIST/DOMAIN_LIST/HOSTS）、`RuleSourceManager`（HTTP(S) 拉取 + ETag 条件请求 + 解析，不自行持久化）+ `RuleSourceManagerFactory`、`ImportedRuleSet`（intercepts/directPassDomains/domesticDomains/preSetIpList）；`SidebikeConfig` 新增 `ruleSources`（持久化来源与 lastUpdated/lastError/etag/lastImported）与 `disabledIntercepts`（"域名\t路径"，删除内置规则时写入，RuleEngine 必须跳过）。
+- 2026-10-31（0.1.1-alpha）：`InterceptAction` 新增 `abort: Boolean?`（true=直接拒绝，路由为 `RouteKind.REJECT`，供广告/跟踪规则导入）。
+- 2026-10-31（0.1.1-alpha）：健康检查 —— `SidebikeEngine.dnsHealth(): List<DnsProviderHealth>`、`DnsResolver.health()`（默认空实现，实现必须容错不抛异常）；`ensureCaCertificate()` 语义修订为**与 MITM 开关无关、始终可生成**（CA 安装引导页需在开启 MITM 前生成并安装证书）。
+- 2026-10-31（0.1.1-alpha）：app 侧新增接口（实现与契约同时冻结）——日志 `buildLogText()` / 调试包 `buildDebugBundle()`（ZIP）、网络诊断 `runNetworkDiagnostics()`、CA `prepareCaInstall()`（KeyChain intent + 系统设置 fallback + PEM/指纹）与 `setMitmEnabled()`（CA 未安装时必须拒绝启用）、规则 `saveRule` / `deleteRule` / `setDirectPassDomains` / `setDomesticAllowList` / `importRulesFromText` / `refreshRuleSources`；`SidebikeUiState` 新增 `ruleSourcesBusy` / `diagnosticsRunning`。

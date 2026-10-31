@@ -1,0 +1,2 @@
+DOMAIN-SUFFIX,qa-shadow.example.com,DIRECT
+DOMAIN-SUFFIX,qa-shadow2.example.com,PROXY

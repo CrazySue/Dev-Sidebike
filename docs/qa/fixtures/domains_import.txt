@@ -1,0 +1,4 @@
+# domains
+qa-dom1.example.com
+qa-dom2.example.com
+qa-dom3.example.cn
